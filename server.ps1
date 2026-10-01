@@ -14,12 +14,14 @@ sends back - it does not decide pass/fail on its own.
 There is no manual approval step. Where a record lives is decided purely by
 its live computed status: anything with zero flags (status "clean") is
 Stored Data; anything with one or more flags - a name/phone/address/pincode/
-RM problem, an unverified company name, or a same-name-in-another-category
-duplicate - is Review Upload, automatically, for every category at once.
-Editing a flagged record so it has no flags left moves it into Stored Data
-on its own, with no click required; nothing ever needs to be "approved" by
-hand. Old records may still carry a leftover "stage" field from before this
-existed - it's simply ignored now.
+RM problem, or a same-name-in-another-category duplicate - is Review Upload,
+automatically, for every category at once. Editing a flagged record so it
+has no flags left moves it into Stored Data on its own, with no click
+required. A record can also be moved to Stored Data directly, flags and all,
+via manualClean (see Attach-Computed) - for a record a human has looked at
+and judged fine despite what the automated checks say. Old records may still
+carry a leftover "stage" field from before this existed - it's simply
+ignored now.
 #>
 param(
   [int]$Port = 8765
@@ -430,38 +432,10 @@ function Validate-Address($addr) {
   return ,$flags
 }
 
-# Strip legal-suffix noise ("Ltd" vs "Limited", "Pvt Ltd" vs "Private
-# Limited", "&" vs "and", punctuation, "(India)") so two spellings of the
-# same company compare equal. This is deliberately conservative - it only
-# suppresses the review flag when the core name matches exactly after
-# normalizing; anything with an actual different word is still flagged.
-$COMPANY_STOPWORDS = @("private","pvt","limited","ltd","llp","inc","incorporated","corporation","corp","company","india","the")
-function Normalize-CompanyCore($s) {
-  $t = (NormSpace $s).ToLower()
-  $t = $t -replace '&', ' and '
-  $t = $t -replace '[.,()]', ' '
-  $t = ([regex]::Replace($t, '\s+', ' ')).Trim()
-  if (-not $t) { return "" }
-  $tokens = @($t -split ' ' | Where-Object { $_ -ne '' -and ($COMPANY_STOPWORDS -notcontains $_) })
-  return ($tokens -join ' ')
-}
-
-# A company only needs a human look when either nothing has been suggested
-# yet, or the suggestion is an actually different name - not when it's just
-# the same name with "Ltd" spelled out as "Limited" or similar.
-function Company-NeedsReview($rec) {
-  $company = NormSpace $rec.company
-  if (-not $company) { return $false }
-  if ($rec.companyApproved) { return $false }
-  $suggestion = NormSpace $rec.correctCompanyName
-  if (-not $suggestion) { return $true }
-  return (Normalize-CompanyCore $company) -ne (Normalize-CompanyCore $suggestion)
-}
-
-# The company check only fires when a company name was actually supplied.
-# Sheets with no Company column at all (most category sheets besides
-# Entrepreneurs) leave this blank on every row, so no flag is raised for
-# them - that's intentional, not a gap.
+# Company names are never automatically flagged for review - there's no
+# reliable way to verify one from the sheet data alone, and a noisy "unverified"
+# flag on correct names just wastes reviewers' time. Company name correctness
+# is checked manually instead.
 function Compute-RecordFlags($rec) {
   $flags = @()
   $n = Validate-Name $rec.name
@@ -478,9 +452,6 @@ function Compute-RecordFlags($rec) {
     else { $flags += (Get-RegionFlags $p.cleaned $rec.address $rec.category) }
   }
   if (-not (NormSpace $rec.rm)) { $flags += @{ code = "RM_MISSING"; severity = "error"; msg = "POC / RM not specified" } }
-  if (Company-NeedsReview $rec) {
-    $flags += @{ code = "COMPANY"; severity = "warn"; msg = "Company name not yet verified" }
-  }
   return ,$flags
 }
 
@@ -528,7 +499,10 @@ function Attach-Computed($records, $dupIds) {
     $item = @{}
     foreach ($k in $r.Keys) { $item[$k] = $r[$k] }
     $item["flags"] = $flags
-    $item["status"] = Get-Severity $flags
+    # manualClean: a human looked at this record (despite whatever flags are
+    # still attached, kept for the record) and judged it fine - it goes to
+    # Stored Data, QR code and all, the same as a record with zero flags.
+    $item["status"] = if ($r.manualClean) { "clean" } else { Get-Severity $flags }
     $item["pincode"] = Extract-PincodeFromAddress $r.address
     $out += $item
   }
@@ -1184,10 +1158,10 @@ while ($listener.IsListening) {
     }
     elseif ($method -eq "GET" -and $path -eq "/api/staging") {
       # Review Upload = every record that currently has at least one flag -
-      # a name/phone/address/pincode/RM problem, an unverified company name,
-      # or a cross-category duplicate - regardless of category. Fixing a
-      # record so it has zero flags left is what moves it out of here; there
-      # is no separate manual approval step.
+      # a name/phone/address/pincode/RM problem, or a cross-category
+      # duplicate - regardless of category, except one marked manualClean.
+      # Fixing a record so it has zero flags left (or marking it manualClean)
+      # is what moves it out of here; there is no separate approval step.
       $snap = Get-ComputedSnapshot
       $flaggedOnly = @($snap.flagged | Where-Object { $_.status -ne "clean" })
       $qCategory = $request.QueryString["category"]

@@ -110,7 +110,6 @@ button.small{padding:5px 10px; font-size:12px; min-height:30px;}
 .mapgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px;}
 @media (max-width:640px){.mapgrid{grid-template-columns:1fr;}}
 .mapfield label{display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;}
-.mapfield label .req{color:var(--bad);}
 .mapfield select{width:100%;}
 .mapwarn{font-size:11.5px; color:var(--bad); margin-top:4px; min-height:14px;}
 
@@ -319,7 +318,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
         <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
         <span class="hint" id="uploadHint" style="margin-top:0;">Choose a category to enable upload.</span>
       </div>
-      <div class="hint">Expected columns (any order): Name, POC / RM, Type, Contact Number, Company Name (optional), Address. Pincode is read automatically from the address text. If a sheet has no Company column at all, that's fine &mdash; company checks are simply skipped for it.</div>
+      <div class="hint">Expected columns (any order): Name, POC / RM, Type, Contact Number, Company Name, Address &mdash; none are required to import. Whatever a sheet has is accepted as-is; map only the columns it actually contains and leave the rest as &ldquo;Not in file&rdquo;. Pincode is read automatically from the address text.</div>
 
       <div id="mapPanel" hidden>
         <div class="hint" id="mapFileInfo"></div>
@@ -336,7 +335,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-review" data-tabpanel="review" hidden>
     <div class="card">
       <h2>Review Upload</h2>
-      <div class="sub">Every record with an issue lands here &mdash; a name/phone/address/pincode/POC problem, an unverified company name, or a duplicate. Fix a row (click it, or use Edit) and it moves itself into Stored Data automatically the moment it has no issues left &mdash; nothing to approve by hand.</div>
+      <div class="sub">Every record with an issue lands here &mdash; a name/phone/address/pincode/POC problem, or a duplicate. Fix a row (click it, or use Edit) and it moves itself into Stored Data automatically the moment it has no issues left, or use &ldquo;Move to Clean&rdquo; to send it there as-is if you've checked it by hand and it's fine.</div>
       <div class="row">
         <select id="reviewCategory"><option value="">All categories</option></select>
         <span class="hint" id="reviewHint" style="margin-top:0;"></span>
@@ -544,7 +543,6 @@ var FLAG_GROUPS = {
   address: ["ADDR_MISSING","ADDR_SHORT","ADDR_NO_NUMBER","ADDR_FEW_PARTS","ADDR_LANDMARK"],
   pincode: ["PINCODE","PIN_SURAT","PIN_REGION"],
   rm: ["RM_MISSING"],
-  company: ["COMPANY"],
   duplicate: ["DUPLICATE"]
 };
 
@@ -688,23 +686,12 @@ function buildNameCell(c){
   td.appendChild(strong); td.appendChild(rmSpan);
   return td;
 }
-// A company only counts as "unverified" when the server actually flagged it
-// (a real difference, or nothing suggested yet) - not just whenever
-// companyApproved happens to be false, since a suggestion that's merely a
-// legal-suffix rewording never sets companyApproved but needs no badge either.
-function companyNeedsReview(c){
-  return (c.flags || []).some(function(f){ return f.code === "COMPANY"; });
-}
+// The server never auto-flags company names for review (see Compute-RecordFlags
+// in server.ps1) - company correctness is checked manually, so this just shows
+// the name plainly, no verified/unverified badge.
 function buildCompanyCell(c){
   var td = document.createElement("td");
   td.textContent = c.company ? (c.companyApproved && c.correctCompanyName ? c.correctCompanyName : c.company) : "—";
-  if(c.company && companyNeedsReview(c)){
-    var unv = document.createElement("span"); unv.className = "pill warn"; unv.style.marginLeft = "6px"; unv.textContent = "unverified";
-    td.appendChild(unv);
-  } else if(c.company){
-    var ok = document.createElement("span"); ok.className = "pill ok"; ok.style.marginLeft = "6px"; ok.textContent = "verified";
-    td.appendChild(ok);
-  }
   return td;
 }
 
@@ -766,7 +753,7 @@ function renderModal(c, mode){
     field("POC / RM", c.rm);
     field("Type", c.clientType);
     field("Contact Number", c.phone);
-    field("Company", c.company ? ((c.companyApproved && c.correctCompanyName ? c.correctCompanyName : c.company) + (companyNeedsReview(c) ? "  (unverified)" : "  (verified)")) : "—");
+    field("Company", c.company ? (c.companyApproved && c.correctCompanyName ? c.correctCompanyName : c.company) : "—");
     field("Address", c.address);
     field("Pincode (read from address)", c.pincode);
     body.appendChild(grid);
@@ -799,8 +786,8 @@ function renderModal(c, mode){
   if(modalState.editing){
     var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost"; cancelBtn.textContent = "Cancel";
     cancelBtn.addEventListener("click", function(){ modalState.editing = false; renderModal(c, mode); });
-    var saveBtn = document.createElement("button"); saveBtn.className = "primary"; saveBtn.textContent = "Save changes";
-    saveBtn.addEventListener("click", function(){
+
+    function buildPatch(){
       var patch = {
         name: normSpace(inputs.name.value),
         rm: normSpace(inputs.rm.value),
@@ -818,23 +805,40 @@ function renderModal(c, mode){
         patch.companyApproved = true;
         patch.correctCompanyName = "";
       }
-      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
       var isNew = mode === "new";
       if(isNew){ patch.category = c.category; patch.companyApproved = patch.companyApproved || false; patch.correctCompanyName = patch.correctCompanyName || ""; }
+      return patch;
+    }
+
+    function doSave(btn, savingLabel, forceClean){
+      var patch = buildPatch();
+      if(forceClean){ patch.manualClean = true; }
+      var isNew = mode === "new";
+      btn.disabled = true; btn.textContent = savingLabel;
       // New records are created by the server, which assigns their id.
       var saveReq = isNew
         ? api("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(patch)})
         : api("/api/clients/" + encodeURIComponent(c.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(patch)});
       saveReq.then(function(){
-        toast((isNew ? "Added " : "Saved changes to ") + (patch.name || "record") + ".");
+        toast((isNew ? "Added " : "Saved changes to ") + (patch.name || "record") + (forceClean ? " and moved it to Stored Data." : "."));
         closeModal();
         refreshAll();
       }).catch(function(err){
-        saveBtn.disabled = false; saveBtn.textContent = "Save changes";
+        btn.disabled = false; btn.textContent = btn.dataset.label;
         toast("Couldn't save: " + err.message);
       });
-    });
-    foot.appendChild(cancelBtn); foot.appendChild(saveBtn);
+    }
+
+    var saveBtn = document.createElement("button"); saveBtn.className = "primary"; saveBtn.textContent = "Save changes"; saveBtn.dataset.label = "Save changes";
+    saveBtn.addEventListener("click", function(){ doSave(saveBtn, "Saving…", false); });
+
+    // Saves whatever was typed AND sends the record straight to Stored Data
+    // (QR code and all), even if some flags would otherwise still apply -
+    // for when a reviewer has already judged it fine by hand.
+    var saveCleanBtn = document.createElement("button"); saveCleanBtn.className = "ghost"; saveCleanBtn.textContent = "Save & add to clean records"; saveCleanBtn.dataset.label = "Save & add to clean records";
+    saveCleanBtn.addEventListener("click", function(){ doSave(saveCleanBtn, "Saving…", true); });
+
+    foot.appendChild(cancelBtn); foot.appendChild(saveCleanBtn); foot.appendChild(saveBtn);
     return;
   }
 
@@ -994,13 +998,17 @@ function setUploadEnabled(on){
 
 // ---------- upload / mapping / import ----------
 var pending = { headers:[], rows:[], category:"" };
+// No field is required to enable import - whatever columns a sheet actually
+// has are accepted as-is. Missing name/phone/address/RM still gets flagged
+// by the server's own screening afterward (Review Upload), it just doesn't
+// block the import itself.
 var FIELD_DEFS = [
-  {key:"name", label:"Name of Client", required:true, kw:["name of client","name","recipient","client"]},
-  {key:"rm", label:"POC / RM", required:true, kw:["poc","point of contact","rm","relationship manager","relationship","manager"]},
-  {key:"clientType", label:"Type", required:false, kw:["type","connection"]},
-  {key:"phone", label:"Contact Number", required:true, kw:["contact number","contact","mobile","cell","phone"]},
-  {key:"company", label:"Company Name", required:false, kw:["company","employer","organisation","organization","promoter"]},
-  {key:"address", label:"Address", required:true, kw:["address","addr"]}
+  {key:"name", label:"Name of Client", kw:["name of client","name","recipient","client"]},
+  {key:"rm", label:"POC / RM", kw:["poc","point of contact","rm","relationship manager","relationship","manager"]},
+  {key:"clientType", label:"Type", kw:["type","connection"]},
+  {key:"phone", label:"Contact Number", kw:["contact number","contact","mobile","cell","phone"]},
+  {key:"company", label:"Company Name", kw:["company","employer","organisation","organization","promoter"]},
+  {key:"address", label:"Address", kw:["address","addr"]}
 ];
 
 $("uploadCategory").addEventListener("change", function(){ setUploadEnabled(true); });
@@ -1044,24 +1052,18 @@ function openMapPanel(fileName){
   FIELD_DEFS.forEach(function(f){
     var wrap = document.createElement("div"); wrap.className = "mapfield";
     var label = document.createElement("label");
-    label.textContent = f.label + " ";
-    if(f.required){ var req = document.createElement("span"); req.className="req"; req.textContent="*"; label.appendChild(req); }
+    label.textContent = f.label;
     var select = document.createElement("select");
     select.dataset.field = f.key;
     var guess = guessColumn(f.kw);
-    if(f.required){
-      var chooseOpt = document.createElement("option"); chooseOpt.value = ""; chooseOpt.textContent = "— Choose a column —";
-      select.appendChild(chooseOpt);
-    } else {
-      var noneOpt = document.createElement("option"); noneOpt.value = "-1"; noneOpt.textContent = "— Not in file —";
-      select.appendChild(noneOpt);
-    }
+    var noneOpt = document.createElement("option"); noneOpt.value = "-1"; noneOpt.textContent = "— Not in file —";
+    select.appendChild(noneOpt);
     pending.headers.forEach(function(h, idx){
       var opt = document.createElement("option"); opt.value = String(idx); opt.textContent = h || ("Column " + (idx+1));
       if(idx === guess) opt.textContent += " (auto-detected)";
       select.appendChild(opt);
     });
-    select.value = guess !== -1 ? String(guess) : (f.required ? "" : "-1");
+    select.value = guess !== -1 ? String(guess) : "-1";
     select.addEventListener("change", updateImportEnabled);
     wrap.appendChild(label); wrap.appendChild(select);
     var warn = document.createElement("div"); warn.className = "mapwarn"; warn.dataset.warnFor = f.key;
@@ -1077,9 +1079,7 @@ function updateImportEnabled(){
   var byColumn = {};
   selects.forEach(function(s){
     $("mapGrid").querySelector('[data-warn-for="' + s.dataset.field + '"]').textContent = "";
-    var f = FIELD_DEFS.find(function(x){ return x.key === s.dataset.field; });
-    if(f.required && s.value === ""){ ok = false; return; }
-    if(s.value === "-1" || s.value === "") return;
+    if(s.value === "-1") return;
     (byColumn[s.value] = byColumn[s.value] || []).push(s.dataset.field);
   });
   Object.keys(byColumn).forEach(function(col){
@@ -1106,15 +1106,19 @@ $("importBtn").addEventListener("click", async function(){
     function val(key){ var idx = mapping[key]; return idx === -1 || idx === undefined ? "" : normSpace(row[idx]); }
     var name = val("name");
     var phone = val("phone");
-    if(!name && !phone) return null;
     var addr = val("address");
     var company = val("company");
     var rm = val("rm");
+    var clientType = val("clientType");
+    // Only a genuinely empty row (nothing in any mapped column) is skipped -
+    // a row with just one field filled in is still imported as-is and left
+    // for the server's screening to flag whatever's missing.
+    if(!name && !phone && !addr && !company && !rm && !clientType) return null;
     var idBase = slug(category) + "__" + slug(name) + "__" + (extractDigits(phone).slice(-4) || "na") + "__" + simpleHash(addr + "|" + company + "|" + rm);
     return {
       id: idBase,
       name: name, phone: phone, address: addr,
-      rm: rm, clientType: val("clientType"), company: company,
+      rm: rm, clientType: clientType, company: company,
       category: category, companyApproved: false, correctCompanyName: "",
       updatedAt: Date.now()
     };
@@ -1192,6 +1196,21 @@ function renderReviewTable(){
       renderModal(c, "staging");
       $("modalOverlay").hidden = false;
     });
+    // For a record a human has checked and judged fine despite its flags -
+    // sends it straight to Stored Data (QR code and all) without editing
+    // anything, so a false-positive flag never wastes anyone's time.
+    var cleanBtn = document.createElement("button"); cleanBtn.className = "small ghost"; cleanBtn.textContent = "Move to Clean"; cleanBtn.style.marginLeft = "6px";
+    cleanBtn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      cleanBtn.disabled = true;
+      api("/api/clients/" + encodeURIComponent(c.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({manualClean: true})}).then(function(){
+        toast("Moved " + (c.name || "row") + " to Stored Data.");
+        refreshAll();
+      }).catch(function(err){
+        cleanBtn.disabled = false;
+        toast("Couldn't move: " + err.message);
+      });
+    });
     var discardBtn = document.createElement("button"); discardBtn.className = "small ghost"; discardBtn.textContent = "Discard"; discardBtn.style.marginLeft = "6px";
     var confirming = false;
     discardBtn.addEventListener("click", function(ev){
@@ -1206,7 +1225,7 @@ function renderReviewTable(){
         refreshAll();
       }).catch(function(err){ toast("Couldn't discard: " + err.message); });
     });
-    tdActions.appendChild(editBtn); tdActions.appendChild(discardBtn);
+    tdActions.appendChild(editBtn); tdActions.appendChild(cleanBtn); tdActions.appendChild(discardBtn);
 
     tr.addEventListener("click", function(ev){
       if(ev.target.closest("button")) return;
