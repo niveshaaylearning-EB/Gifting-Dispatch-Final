@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+*.tmp
+lib/
+data.json
+users.json
+tracking.json
+Tracking ID's/
+README.md
+Start Dashboard.bat

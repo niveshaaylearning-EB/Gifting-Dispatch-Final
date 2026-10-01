@@ -38,6 +38,37 @@ once in the folder that holds the old `data.json`, `users.json` and
 | `tracking-poller.ps1` | Re-checks undelivered AWBs about every 2 hours |
 | `migrate-json-to-postgres.ps1` | One-time import of the old JSON data files |
 | `public/` | Dashboard and login pages, plus self-hosted scripts in `public/vendor/` |
+| `Dockerfile` | Container image (pwsh + the pre-downloaded Npgsql driver) |
+| `docker-compose.yml` | Full stack: PostgreSQL, the web server, and the tracking poller |
+
+## Docker deployment
+
+Needs Docker and Docker Compose (`docker compose version`). This runs the
+whole stack - PostgreSQL, the dashboard, and the tracking poller - as three
+containers.
+
+1. Copy `.env.example` to `.env` and set `DB_USER`, `DB_PASS` and
+   `DB_DATABASE` (these also become the PostgreSQL container's own
+   credentials). Leave `DB_HOST` and `DB_SSLMODE` unset - `docker-compose.yml`
+   points those at the `postgres` service for you.
+2. Build and start everything:
+   ```
+   docker compose up -d --build
+   ```
+3. Watch the console for the one-time `admin` password:
+   ```
+   docker compose logs -f app
+   ```
+4. Open `http://localhost:8765/` (or the host's address, for QR-code
+   scanning from a phone on the same network).
+
+Data lives in the `pgdata` Docker volume, so it survives
+`docker compose down` (use `docker compose down -v` to also wipe the
+database). To rebuild after pulling code changes: `docker compose up -d --build`.
+
+In production, put this behind a reverse proxy that terminates HTTPS, then
+set `TRUST_PROXY=true` and `COOKIE_SECURE=true` in `.env` before starting the
+stack (see "Production deployment" below).
 
 ## Security
 

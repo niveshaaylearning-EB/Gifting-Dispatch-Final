@@ -1,0 +1,67 @@
+# Full stack for the Gift Dispatch QC dashboard: PostgreSQL, the web server,
+# and the courier-tracking poller (see README.md for the two-process design).
+#
+# Usage:
+#   1. Copy .env.example to .env and set DB_USER / DB_PASS / DB_DATABASE
+#      (DB_HOST, DB_SSLMODE below already point the app at the "postgres"
+#      service, so you don't need to set those two in .env for this setup).
+#   2. docker compose up -d --build
+#   3. Watch the first-start admin password: docker compose logs -f app
+#
+# Put this behind a reverse proxy that terminates HTTPS in production, then
+# set TRUST_PROXY=true and COOKIE_SECURE=true in .env (see README.md).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?Set DB_USER in .env}
+      POSTGRES_PASSWORD: ${DB_PASS:?Set DB_PASS in .env}
+      POSTGRES_DB: ${DB_DATABASE:?Set DB_DATABASE in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:?Set DB_DATABASE in .env}
+      DB_USER: ${DB_USER:?Set DB_USER in .env}
+      DB_PASS: ${DB_PASS:?Set DB_PASS in .env}
+      DB_SCHEMA: ${DB_SCHEMA:-gifting}
+      # The postgres service above has no TLS certificate configured.
+      DB_SSLMODE: Disable
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    ports:
+      - "8765:8765"
+
+  poller:
+    build: .
+    command: ["pwsh", "-NoProfile", "-File", "/app/tracking-poller.ps1"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:?Set DB_DATABASE in .env}
+      DB_USER: ${DB_USER:?Set DB_USER in .env}
+      DB_PASS: ${DB_PASS:?Set DB_PASS in .env}
+      DB_SCHEMA: ${DB_SCHEMA:-gifting}
+      DB_SSLMODE: Disable
+
+volumes:
+  pgdata:
