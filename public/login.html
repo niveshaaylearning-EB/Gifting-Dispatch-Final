@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gift Dispatch QC &mdash; Log in</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#FAF7F2; --surface:#FFFFFF; --surface-2:#F3EDE1; --border:#E4DCCB;
+  --text:#241C12; --text-muted:#6B6153;
+  --accent:#B5651D; --accent-ink:#FFFFFF;
+  --bad:#B3382C; --bad-soft:#FBE6E2;
+  --good:#2E7D4F; --good-soft:#E3F1E8;
+  --shadow: 0 1px 2px rgba(36,28,18,.06), 0 4px 14px rgba(36,28,18,.05);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#17130D; --surface:#221C13; --surface-2:#2B2417; --border:#3A3021;
+    --text:#F3ECE0; --text-muted:#B3A890;
+    --accent:#E0913F; --accent-ink:#1C1206;
+    --bad:#E37569; --bad-soft:#3A1C17;
+    --good:#5FBE84; --good-soft:#1C3226;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#17130D; --surface:#221C13; --surface-2:#2B2417; --border:#3A3021;
+  --text:#F3ECE0; --text-muted:#B3A890;
+  --accent:#E0913F; --accent-ink:#1C1206;
+  --bad:#E37569; --bad-soft:#3A1C17;
+  --good:#5FBE84; --good-soft:#1C3226;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+*{box-sizing:border-box;}
+html,body{margin:0; height:100%;}
+body{
+  background:var(--bg); color:var(--text); font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  display:flex; align-items:center; justify-content:center; padding:16px;
+}
+.card{
+  background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow);
+  padding:28px 26px; width:100%; max-width:360px;
+}
+.eyebrow{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); font-weight:600;}
+h1{font-size:20px; margin:4px 0 20px;}
+.tabs{display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:18px;}
+.tab-btn{
+  flex:1; background:transparent; border:none; border-bottom:2px solid transparent; padding:9px 4px;
+  font:inherit; font-weight:600; font-size:13.5px; color:var(--text-muted); cursor:pointer;
+}
+.tab-btn.active{color:var(--text); border-bottom-color:var(--accent);}
+form{display:flex; flex-direction:column; gap:10px;}
+label{font-size:12px; color:var(--text-muted); margin-bottom:-4px;}
+input{
+  font:inherit; font-size:13.5px; padding:10px 12px; border-radius:9px; border:1px solid var(--border);
+  background:var(--surface); color:var(--text); width:100%;
+}
+input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+button.submit{
+  font:inherit; font-size:13.5px; font-weight:600; padding:10px 16px; border-radius:9px; border:1px solid var(--accent);
+  background:var(--accent); color:var(--accent-ink); cursor:pointer; margin-top:6px;
+}
+.msg{font-size:12.5px; padding:9px 11px; border-radius:8px; display:none;}
+.msg.err{background:var(--bad-soft); color:var(--bad); display:block;}
+.msg.ok{background:var(--good-soft); color:var(--good); display:block;}
+.hint{font-size:11.5px; color:var(--text-muted); margin-top:14px; text-align:center;}
+[hidden]{display:none!important;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="eyebrow">The Dhando Valley &middot; Diwali Gifting</div>
+  <h1>Gift Dispatch QC</h1>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tabLogin">Log in</button>
+    <button class="tab-btn" id="tabSignup">Create account</button>
+  </div>
+
+  <form id="loginForm">
+    <div class="msg" id="loginMsg"></div>
+    <label for="loginUsername">Username</label>
+    <input type="text" id="loginUsername" autocomplete="username" required>
+    <label for="loginPassword">Password</label>
+    <input type="password" id="loginPassword" autocomplete="current-password" required>
+    <button class="submit" type="submit">Log in</button>
+  </form>
+
+  <form id="signupForm" hidden>
+    <div class="msg" id="signupMsg"></div>
+    <label for="signupUsername">Choose a username</label>
+    <input type="text" id="signupUsername" autocomplete="username" required minlength="3">
+    <label for="signupPassword">Choose a password</label>
+    <input type="password" id="signupPassword" autocomplete="new-password" required minlength="8">
+    <label for="signupConfirm">Confirm password</label>
+    <input type="password" id="signupConfirm" autocomplete="new-password" required minlength="8">
+    <label for="signupInvite">Invite code (only if an admin gave you one)</label>
+    <input type="text" id="signupInvite" autocomplete="off" spellcheck="false">
+    <button class="submit" type="submit">Create account</button>
+    <div class="hint">An admin needs to approve your account before you can log in.</div>
+  </form>
+</div>
+
+<script>
+(function(){
+"use strict";
+function $(id){ return document.getElementById(id); }
+
+function showTab(name){
+  $("tabLogin").classList.toggle("active", name === "login");
+  $("tabSignup").classList.toggle("active", name === "signup");
+  $("loginForm").hidden = name !== "login";
+  $("signupForm").hidden = name !== "signup";
+}
+$("tabLogin").addEventListener("click", function(){ showTab("login"); });
+$("tabSignup").addEventListener("click", function(){ showTab("signup"); });
+
+function setMsg(el, text, ok){
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "err");
+}
+
+// If the auth gate redirected here (e.g. a QR scan on /dispatch/<id> while
+// signed out), ?next= points back to that exact page so scanning still
+// finishes in one step once logged in. Only a same-site relative path is
+// ever followed, never an absolute or protocol-relative URL.
+function nextUrl(){
+  var params = new URLSearchParams(location.search);
+  var next = params.get("next");
+  // Must be a same-site path: one leading "/", no "//" and no backslashes
+  // (browsers treat a backslash like a slash, so "/" + "\evil.com" would
+  // leave the site).
+  if(next && next.charAt(0) === "/" && next.charAt(1) !== "/" && next.indexOf("\\") === -1){ return next; }
+  return "/";
+}
+
+$("loginForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  var msg = $("loginMsg"); msg.className = "msg";
+  fetch("/login", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({username: $("loginUsername").value.trim(), password: $("loginPassword").value})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if(res.ok){ location.href = nextUrl(); }
+    else { setMsg(msg, res.error || "Couldn't log in.", false); }
+  }).catch(function(err){ setMsg(msg, "Couldn't reach the server: " + err.message, false); });
+});
+
+$("signupForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  var msg = $("signupMsg"); msg.className = "msg";
+  var pw = $("signupPassword").value, confirm = $("signupConfirm").value;
+  if(pw !== confirm){ setMsg(msg, "Passwords don't match.", false); return; }
+  fetch("/signup", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({username: $("signupUsername").value.trim(), password: pw, inviteCode: $("signupInvite").value.trim()})
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if(res.ok){
+      setMsg(msg, "Account created. An admin needs to approve it before you can log in.", true);
+      $("signupForm").reset();
+    } else {
+      setMsg(msg, res.error || "Couldn't create account.", false);
+    }
+  }).catch(function(err){ setMsg(msg, "Couldn't reach the server: " + err.message, false); });
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# Database credentials - never committed, this repo is public
+.env
+
+# Npgsql driver, downloaded from nuget.org on first run (see db.ps1)
+lib/
+
+# Old local data files from before the PostgreSQL move - only needed once,
+# for migrate-json-to-postgres.ps1. Real client / business data.
+data.json
+users.json
+tracking.json
+Tracking ID's/
+*.tmp

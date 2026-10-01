@@ -1,0 +1,2162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gift Dispatch QC</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#FAF7F2; --surface:#FFFFFF; --surface-2:#F3EDE1; --border:#E4DCCB;
+  --text:#241C12; --text-muted:#6B6153;
+  --accent:#B5651D; --accent-ink:#FFFFFF; --accent-soft:#F1E0C9;
+  --good:#2E7D4F; --good-soft:#E3F1E8;
+  --warn:#966300; --warn-soft:#FBF0D9;
+  --bad:#B3382C; --bad-soft:#FBE6E2;
+  --shadow: 0 1px 2px rgba(36,28,18,.06), 0 4px 14px rgba(36,28,18,.05);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#17130D; --surface:#221C13; --surface-2:#2B2417; --border:#3A3021;
+    --text:#F3ECE0; --text-muted:#B3A890;
+    --accent:#E0913F; --accent-ink:#1C1206; --accent-soft:#3A2A14;
+    --good:#5FBE84; --good-soft:#1C3226;
+    --warn:#E0B23F; --warn-soft:#3A2E10;
+    --bad:#E37569; --bad-soft:#3A1C17;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#17130D; --surface:#221C13; --surface-2:#2B2417; --border:#3A3021;
+  --text:#F3ECE0; --text-muted:#B3A890;
+  --accent:#E0913F; --accent-ink:#1C1206; --accent-soft:#3A2A14;
+  --good:#5FBE84; --good-soft:#1C3226;
+  --warn:#E0B23F; --warn-soft:#3A2E10;
+  --bad:#E37569; --bad-soft:#3A1C17;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 18px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  padding-inline:16px; padding-block:20px 48px;
+}
+.wrap{max-width:1180px; margin:0 auto; display:flex; flex-direction:column; gap:20px;}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+h1,h2,h3{margin:0; text-wrap:balance; font-weight:600;}
+a{color:var(--accent);}
+header.top{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px;}
+header.top h1{font-size:22px; letter-spacing:-.01em;}
+header.top .tag{font-size:13px; color:var(--text-muted);}
+.eyebrow{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); font-weight:600;}
+
+.card{
+  background:var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:18px 20px; box-shadow:var(--shadow);
+}
+.card > h2{font-size:15px; margin-bottom:2px;}
+.card .sub{font-size:12.5px; color:var(--text-muted); margin-bottom:14px;}
+
+.stats{display:grid; grid-template-columns:repeat(5,1fr); gap:10px;}
+@media (max-width:760px){.stats{grid-template-columns:repeat(2,1fr);}}
+.stat{
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:12px 14px; display:flex; flex-direction:column; gap:4px; box-shadow:var(--shadow);
+}
+.stat .n{font-family:"IBM Plex Mono",monospace; font-size:24px; font-weight:600; font-variant-numeric:tabular-nums;}
+.stat .l{font-size:11.5px; color:var(--text-muted); letter-spacing:.02em;}
+.stat.bad .n{color:var(--bad);}
+.stat.warn .n{color:var(--warn);}
+.stat.good .n{color:var(--good);}
+
+.row{display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
+select, input[type=text], input[type=search]{
+  font:inherit; font-size:13.5px; padding:9px 12px; border-radius:9px;
+  border:1px solid var(--border); background:var(--surface); color:var(--text);
+  min-height:38px;
+}
+select:focus, input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+button{
+  font:inherit; font-size:13.5px; font-weight:600; padding:9px 16px; border-radius:9px;
+  border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer;
+  min-height:38px;
+}
+button:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+button.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
+button.primary:disabled{opacity:.45; cursor:not-allowed;}
+button.ghost{background:transparent;}
+button.danger{color:var(--bad); border-color:var(--bad);}
+button.small{padding:5px 10px; font-size:12px; min-height:30px;}
+
+.pill{
+  display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:100px;
+  font-size:11.5px; font-weight:600; line-height:1.4; white-space:nowrap;
+}
+.pill.err{background:var(--bad-soft); color:var(--bad);}
+.pill.warn{background:var(--warn-soft); color:var(--warn);}
+.pill.ok{background:var(--good-soft); color:var(--good);}
+.pill.cat{background:var(--surface-2); color:var(--text-muted);}
+
+.upload-zone{display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
+.hint{font-size:12px; color:var(--text-muted); margin-top:8px;}
+.progress{height:8px; border-radius:5px; background:var(--surface-2); overflow:hidden; margin-top:10px;}
+.progress > div{height:100%; background:var(--accent); width:0%; transition:width .2s;}
+
+.mapgrid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px;}
+@media (max-width:640px){.mapgrid{grid-template-columns:1fr;}}
+.mapfield label{display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;}
+.mapfield label .req{color:var(--bad);}
+.mapfield select{width:100%;}
+.mapwarn{font-size:11.5px; color:var(--bad); margin-top:4px; min-height:14px;}
+
+.toast{
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+  background:var(--text); color:var(--bg); padding:10px 18px; border-radius:10px;
+  font-size:13px; box-shadow:var(--shadow); z-index:50; max-width:90vw; text-align:center;
+}
+
+/* Tabs */
+.tabs{display:flex; gap:0; border-bottom:1px solid var(--border); overflow-x:auto;}
+.tab-btn{
+  background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0;
+  padding:10px 4px; margin-right:22px; font-weight:600; font-size:13.5px; color:var(--text-muted);
+  white-space:nowrap; min-height:auto; cursor:pointer;
+}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{color:var(--text); border-bottom-color:var(--accent);}
+.tab-btn .count{margin-left:7px; font-size:11px; font-weight:700; color:var(--text-muted); background:var(--surface-2); padding:1px 7px; border-radius:100px;}
+.tab-btn.active .count{color:var(--accent); background:var(--accent-soft);}
+.tabpanel{display:flex; flex-direction:column; gap:16px;}
+
+/* Tables */
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:12px;}
+table{width:100%; border-collapse:collapse; font-size:13px; min-width:960px;}
+thead th{
+  position:sticky; top:0; background:var(--surface-2); text-align:left; font-size:11.5px;
+  letter-spacing:.03em; text-transform:uppercase; color:var(--text-muted); padding:9px 12px;
+  border-bottom:1px solid var(--border); white-space:nowrap;
+}
+th[data-sort-key]{cursor:pointer; user-select:none;}
+th[data-sort-key]:hover{color:var(--text);}
+.sort-arrow{display:inline-block; min-width:10px; font-size:10px; color:var(--accent);}
+.col-filter-btn{
+  border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-size:11px;
+  padding:0 2px; margin-left:4px; border-radius:4px; vertical-align:middle;
+}
+.col-filter-btn:hover, .col-filter-btn.active{color:var(--accent); background:var(--accent-soft);}
+.col-filter-popover{
+  position:absolute; z-index:200; background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; box-shadow:var(--shadow); padding:10px; width:230px; font-size:12.5px;
+  text-transform:none; letter-spacing:normal; color:var(--text);
+}
+.col-filter-popover input[type="search"]{
+  width:100%; font:inherit; font-size:12.5px; padding:6px 8px; border-radius:7px;
+  border:1px solid var(--border); background:var(--surface); color:var(--text);
+}
+.col-filter-links{display:flex; gap:10px; margin:6px 0;}
+.col-filter-links a{font-size:11.5px; color:var(--accent); text-decoration:none; cursor:pointer;}
+.col-filter-list{max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;}
+.col-filter-item{display:flex; align-items:center; gap:7px; padding:3px 2px; cursor:pointer; font-weight:400; text-transform:none;}
+.col-filter-item span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+tbody td{padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top;}
+tbody tr{cursor:pointer;}
+tbody tr:nth-child(even){background:color-mix(in srgb, var(--surface-2) 35%, transparent);}
+tbody tr.sev-err{background:var(--bad-soft);}
+tbody tr.sev-warn{background:var(--warn-soft);}
+tbody tr:hover{filter:brightness(0.97);}
+.addr-cell{max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.namecell .rm{display:block; font-size:11px; color:var(--text-muted); margin-top:2px;}
+.status-cell{display:flex; align-items:center; gap:6px; font-weight:600; font-size:12.5px; white-space:nowrap;}
+.status-dot{width:8px; height:8px; border-radius:50%; flex:none;}
+.status-clean{color:var(--good);} .status-clean .status-dot{background:var(--good);}
+.status-warn{color:var(--warn);} .status-warn .status-dot{background:var(--warn);}
+.status-err{color:var(--bad);} .status-err .status-dot{background:var(--bad);}
+
+/* Inline category edit mode */
+tbody tr.edit-row td{padding:6px 8px;}
+tbody tr.edit-row input[type=text]{width:100%; min-width:110px; font-size:12.5px; padding:6px 8px;}
+tbody tr.edit-row.row-removed{opacity:.45;}
+tbody tr.edit-row.row-removed input[type=text]{text-decoration:line-through;}
+tbody tr.edit-row.row-new{background:var(--accent-soft);}
+.row-remove-btn{min-height:auto; padding:4px 9px; font-size:15px; line-height:1; font-weight:700;}
+
+/* Courier Dispatch Checks */
+.info-btn{
+  width:26px; height:26px; padding:0; min-height:auto; border-radius:50%;
+  font-size:13px; font-weight:700; font-style:italic; line-height:1;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.info-row td{background:var(--surface-2); padding:12px 16px;}
+.info-grid{display:grid; grid-template-columns:110px 1fr; gap:6px 12px; font-size:12.5px; max-width:480px;}
+.info-grid .k{color:var(--text-muted);}
+.qr-box{display:inline-block; padding:6px; background:#fff; border-radius:8px; line-height:0;}
+.qr-url{font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--text-muted); max-width:180px; word-break:break-all; margin-top:5px;}
+.dispatch-status{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.dispatch-status .when{font-size:12px; color:var(--text-muted);}
+.dispatch-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-top:14px;}
+.dispatch-card{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 10px; text-align:center; box-shadow:var(--shadow); display:flex; flex-direction:column; align-items:center; gap:8px;}
+.dispatch-card .name{font-size:12.5px; font-weight:600; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+.reviewrow{display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2);}
+.reviewrow .meta{flex:1 1 220px; min-width:180px;}
+.reviewrow .meta b{display:block; font-size:13.5px;}
+.reviewrow .meta span{font-size:11.5px; color:var(--text-muted);}
+.reviewrow input[type=text]{flex:1 1 200px; min-width:160px;}
+
+.dupgroup{border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--surface-2);}
+.dupgroup .name{font-weight:600; font-size:13.5px; margin-bottom:6px;}
+.dupopt{display:flex; align-items:center; gap:8px; font-size:12.5px; padding:4px 0;}
+.dupopt label{display:flex; align-items:center; gap:6px; cursor:pointer;}
+
+.empty{padding:24px; text-align:center; color:var(--text-muted); font-size:13px;}
+.banner{padding:12px 16px; border-radius:10px; font-size:13px; background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn);}
+
+/* Detail modal */
+.modal-overlay{position:fixed; inset:0; background:rgba(20,15,8,.5); display:flex; align-items:center; justify-content:center; padding:20px; z-index:100;}
+.modal{background:var(--surface); border:1px solid var(--border); border-radius:14px; width:100%; max-width:580px; max-height:85vh; overflow-y:auto; box-shadow:var(--shadow);}
+.modal-head{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:16px 20px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--surface); border-radius:14px 14px 0 0;}
+.modal-head h3{font-size:16.5px;}
+.modal-head .sub{font-size:12px; color:var(--text-muted); margin-top:2px;}
+.modal-close{background:transparent; border:none; font-size:20px; line-height:1; padding:2px 6px; min-height:auto; color:var(--text-muted);}
+.modal-body{padding:16px 20px; display:flex; flex-direction:column; gap:16px;}
+.modal-fields{display:grid; grid-template-columns:140px 1fr; gap:9px 14px; font-size:13px;}
+@media (max-width:480px){.modal-fields{grid-template-columns:1fr;}}
+.modal-field{display:contents;}
+.modal-field .k{color:var(--text-muted); padding-top:8px;}
+.modal-field .v{font-weight:500; overflow-wrap:anywhere;}
+.modal-fields input[type=text],.modal-fields textarea{width:100%; font:inherit; font-size:13px; padding:7px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text);}
+.modal-fields textarea{resize:vertical; font-family:inherit;}
+.modal-subhead{font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin:0;}
+.modal-issues{display:flex; flex-direction:column; gap:8px;}
+.issue-item{display:flex; gap:9px; align-items:flex-start; padding:10px 12px; border-radius:9px; font-size:13px; line-height:1.45;}
+.issue-item.issue-err{background:var(--bad-soft); color:var(--bad);}
+.issue-item.issue-warn{background:var(--warn-soft); color:var(--warn);}
+.issue-dot{width:7px; height:7px; border-radius:50%; background:currentColor; margin-top:6px; flex:none;}
+.modal-foot{padding:14px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px;}
+
+[hidden]{display:none!important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <div class="eyebrow">The Dhando Valley &middot; Diwali Gifting</div>
+      <h1>Gift Dispatch QC</h1>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+      <div class="tag">Pre-courier data checks for ~800&ndash;1000 client gifts, by RM &middot; screened on this machine's server</div>
+      <div class="row" style="gap:8px;">
+        <span class="hint" id="whoAmI" style="margin-top:0;"></span>
+        <button class="ghost small" id="changeUsernameBtn">Change Username</button>
+        <button class="ghost small" id="changePasswordBtn">Change Password</button>
+        <button class="ghost small" id="logoutBtn">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="changeUsernamePanel" class="card" hidden style="max-width:360px;">
+    <h2 style="font-size:14px;">Change Username</h2>
+    <div class="row" style="flex-direction:column; align-items:stretch; gap:8px; margin-top:8px;">
+      <input type="text" id="cuNew" placeholder="New username (min 3 characters)">
+      <div class="row">
+        <button class="primary small" id="cuSaveBtn">Save new username</button>
+        <button class="ghost small" id="cuCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="changePasswordPanel" class="card" hidden style="max-width:360px;">
+    <h2 style="font-size:14px;">Change Password</h2>
+    <div class="row" style="flex-direction:column; align-items:stretch; gap:8px; margin-top:8px;">
+      <input type="password" id="cpCurrent" placeholder="Current password">
+      <input type="password" id="cpNew" placeholder="New password (min 8 characters)">
+      <input type="password" id="cpConfirm" placeholder="Confirm new password">
+      <div class="row">
+        <button class="primary small" id="cpSaveBtn">Save new password</button>
+        <button class="ghost small" id="cpCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dbBanner" class="banner" hidden></div>
+
+  <div class="eyebrow" id="statsContext" style="margin-bottom:-6px;">Showing: Stored Data &mdash; All categories</div>
+  <section class="stats" id="stats" aria-label="Summary">
+    <div class="stat"><div class="n mono" id="stTotal">0</div><div class="l">Total records</div></div>
+    <div class="stat bad"><div class="n mono" id="stErr">0</div><div class="l">Blocking errors</div></div>
+    <div class="stat warn"><div class="n mono" id="stWarn">0</div><div class="l">Needs review</div></div>
+    <div class="stat good"><div class="n mono" id="stClean">0</div><div class="l">Clean records</div></div>
+    <div class="stat"><div class="n mono" id="stDup">0</div><div class="l">Duplicate names (Stored Data)</div></div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab-btn" data-tab="upload" role="tab">Upload</button>
+    <button class="tab-btn" data-tab="review" role="tab">Review Upload<span class="count" id="reviewCount">0</span></button>
+    <button class="tab-btn" data-tab="duplicates" role="tab">Duplicates<span class="count" id="dupCount">0</span></button>
+    <button class="tab-btn" data-tab="stored" role="tab">Stored Data<span class="count" id="storedCount">0</span></button>
+    <span id="tab-btn-dispatch-wrap" hidden style="display:contents;"><button class="tab-btn" data-tab="dispatch" role="tab">Courier Dispatch Checks<span class="count" id="dispatchCount">0</span></button></span>
+    <button class="tab-btn" data-tab="tracking" role="tab">Live Tracking Status<span class="count" id="trackingCount">0</span></button>
+    <span id="tab-btn-approvals-wrap" hidden style="display:contents;"><button class="tab-btn" data-tab="approvals" role="tab">User Approvals<span class="count" id="approvalsCount">0</span></button></span>
+  </nav>
+
+  <section class="tabpanel" id="tabpanel-upload" data-tabpanel="upload">
+    <div class="card" aria-label="Gift List">
+      <h2>Gift List</h2>
+      <div class="sub">Upload one category's Excel file at a time. Screening runs on the server; results land in the Review Upload tab, not straight into Stored Data.</div>
+
+      <div class="upload-zone">
+        <select id="uploadCategory">
+          <option value="">Select category&hellip;</option>
+        </select>
+        <button class="primary" id="uploadBtn" disabled>Upload List</button>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+        <span class="hint" id="uploadHint" style="margin-top:0;">Choose a category to enable upload.</span>
+      </div>
+      <div class="hint">Expected columns (any order): Name, POC / RM, Type, Contact Number, Company Name (optional), Address. Pincode is read automatically from the address text. If a sheet has no Company column at all, that's fine &mdash; company checks are simply skipped for it.</div>
+
+      <div id="mapPanel" hidden>
+        <div class="hint" id="mapFileInfo"></div>
+        <div class="mapgrid" id="mapGrid"></div>
+        <div class="row" style="margin-top:14px;">
+          <button class="primary" id="importBtn">Import rows</button>
+          <button class="ghost" id="cancelMapBtn">Cancel</button>
+        </div>
+        <div class="progress" id="importProgress" hidden><div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tabpanel-review" data-tabpanel="review" hidden>
+    <div class="card">
+      <h2>Review Upload</h2>
+      <div class="sub">Every record with an issue lands here &mdash; a name/phone/address/pincode/POC problem, an unverified company name, or a duplicate. Fix a row (click it, or use Edit) and it moves itself into Stored Data automatically the moment it has no issues left &mdash; nothing to approve by hand.</div>
+      <div class="row">
+        <select id="reviewCategory"><option value="">All categories</option></select>
+        <span class="hint" id="reviewHint" style="margin-top:0;"></span>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table id="reviewTable">
+        <thead>
+          <tr>
+            <th data-sort-key="status">Status<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="status" title="Filter">&#9662;</button></th>
+            <th data-sort-key="name">Name / POC<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="name" title="Filter">&#9662;</button></th>
+            <th data-sort-key="phone">Contact Number<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="phone" title="Filter">&#9662;</button></th>
+            <th data-sort-key="type">Type<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="type" title="Filter">&#9662;</button></th>
+            <th data-sort-key="address">Address<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="address" title="Filter">&#9662;</button></th>
+            <th data-sort-key="pincode">Pincode<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="pincode" title="Filter">&#9662;</button></th>
+            <th data-sort-key="company">Company<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="company" title="Filter">&#9662;</button></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="reviewTbody"></tbody>
+      </table>
+      <div class="empty" id="reviewEmpty">Nothing pending review right now.</div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tabpanel-stored" data-tabpanel="stored" hidden>
+    <div class="card" aria-label="Filters">
+      <h2>Stored Data</h2>
+      <div class="sub">Every record with zero issues, automatically &mdash; nothing here needs approving. Click a row for detail, use Edit/Delete alongside a row to change just that one, or click a column heading to sort. Only records here get a QR code on the Courier Dispatch Checks tab.</div>
+      <div class="row">
+        <select id="filterCategory"><option value="">All categories</option></select>
+        <button class="ghost" id="addRowBtn">+ Add row</button>
+        <button class="ghost" id="deleteCategoryBtn" disabled title="Select a single category to enable this">Delete this category's data</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <input type="search" id="searchBox" placeholder="Search name, phone, address&hellip;" style="flex:1 1 220px;">
+      </div>
+      <div class="row" id="normalFilterBar" style="margin-top:10px;">
+        <select id="filterRm"><option value="">All RMs</option></select>
+        <select id="filterFlag"><option value="">All records</option></select>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table id="storedTable">
+        <thead>
+          <tr>
+            <th data-sort-key="status">Status<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="status" title="Filter">&#9662;</button></th>
+            <th data-sort-key="name">Name / POC<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="name" title="Filter">&#9662;</button></th>
+            <th data-sort-key="phone">Contact Number<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="phone" title="Filter">&#9662;</button></th>
+            <th data-sort-key="type">Type<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="type" title="Filter">&#9662;</button></th>
+            <th data-sort-key="address">Address<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="address" title="Filter">&#9662;</button></th>
+            <th data-sort-key="pincode">Pincode<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="pincode" title="Filter">&#9662;</button></th>
+            <th data-sort-key="company">Company<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="company" title="Filter">&#9662;</button></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="emptyState">Nothing in Stored Data yet &mdash; upload a category, and anything clean lands here on its own.</div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tabpanel-duplicates" data-tabpanel="duplicates" hidden>
+    <div class="card">
+      <h2>Duplicate Names</h2>
+      <div class="sub">Checked across every record, in Review Upload or Stored Data alike. The same client should appear on exactly one list. Pick the correct entry below and the others will be removed &mdash; the one you keep then moves to Stored Data on its own once it has no other issues left.</div>
+      <div id="dupList"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tabpanel-dispatch" data-tabpanel="dispatch" hidden>
+    <div class="banner" id="lanWarningBanner" hidden></div>
+    <div class="card">
+      <h2>Courier Dispatch Checks</h2>
+      <div class="sub">Only clean, approved records from Stored Data appear here &mdash; clear any flags there first. Show each QR code to the person packing gifts; scanning it with a phone camera asks for their name, then marks that client dispatched.</div>
+      <div class="row">
+        <select id="dispatchCategory"><option value="">Select category&hellip;</option></select>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="small primary" id="dispatchSubtabPending">Pending Dispatch (0)</button>
+        <button class="small ghost" id="dispatchSubtabDispatched">Dispatched (0)</button>
+        <span id="dispatchLayoutToggle" style="margin-left:auto; display:flex; gap:6px;">
+          <button class="small primary" id="dispatchLayoutList">List view</button>
+          <button class="small ghost" id="dispatchLayoutGrid">Grid view</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="tablewrap" id="dispatchListWrap">
+      <table id="dispatchTable">
+        <thead id="dispatchThead">
+          <tr>
+            <th>Name / POC</th>
+            <th></th>
+            <th>QR Code</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="dispatchTbody"></tbody>
+      </table>
+      <div class="empty" id="dispatchEmpty">Pick a category above to see its clean, ready-to-dispatch clients.</div>
+    </div>
+
+    <div class="dispatch-grid" id="dispatchGrid" hidden></div>
+  </section>
+
+  <section class="tabpanel" id="tabpanel-tracking" data-tabpanel="tracking" hidden>
+    <div class="card">
+      <h2>Live Tracking Status</h2>
+      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 2 hours until a shipment is delivered &mdash; once delivered, it's never checked again. Import an Excel file with three columns: Tracking ID / AWB No, Name, and State/Location.</div>
+      <div class="row">
+        <input type="file" id="trackingFileInput" accept=".xlsx,.xls" hidden>
+        <button class="primary small" id="trackingImportBtn">Import Excel file</button>
+        <button class="ghost small" id="trackingRefreshBtn">Refresh now</button>
+        <span class="hint" id="trackingImportHint" style="margin-top:0;"></span>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <input type="search" id="trackingSearchBox" placeholder="Search AWB, name, state&hellip;" style="flex:1 1 220px;">
+        <select id="trackingStatusFilter">
+          <option value="">All statuses</option>
+          <option value="pending">Not yet checked</option>
+          <option value="progress">Booked / in transit / out for delivery</option>
+          <option value="delivered">Delivered</option>
+          <option value="error">Check failed</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table id="trackingTable">
+        <thead>
+          <tr>
+            <th data-sort-key="awb">AWB / Tracking ID<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="awb" title="Filter">&#9662;</button></th>
+            <th data-sort-key="name">Name<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="name" title="Filter">&#9662;</button></th>
+            <th data-sort-key="state">State<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="state" title="Filter">&#9662;</button></th>
+            <th data-sort-key="status">Status<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="status" title="Filter">&#9662;</button></th>
+            <th data-sort-key="lastCenter">Last Center &amp; POC<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="lastCenter" title="Filter">&#9662;</button></th>
+            <th data-sort-key="lastChecked">Last checked<span class="sort-arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="trackingTbody"></tbody>
+      </table>
+      <div class="empty" id="trackingEmpty">No tracking records yet &mdash; import an Excel file to get started.</div>
+    </div>
+  </section>
+
+  <section class="tabpanel" id="tabpanel-approvals" data-tabpanel="approvals" hidden>
+    <div class="card">
+      <h2>User Approvals</h2>
+      <div class="sub">Anyone can create a username and password from the login page, but they can't access the dashboard until approved here. You can also allow a specific username in advance, before that person has signed up at all &mdash; it shows up below as approved and waiting for them to set a password.</div>
+      <div class="row" style="margin-top:10px;">
+        <input type="text" id="preauthUsername" placeholder="Username to allow in advance" style="flex:1 1 220px;">
+        <button class="primary small" id="preauthBtn">Allow this username</button>
+      </div>
+      <div class="sub" style="margin-top:14px;">Dispatch access is separate from dashboard access &mdash; it controls who can open the Courier Dispatch Checks tab (QR codes for couriers). Admins always have it.</div>
+      <div id="approvalsList" style="margin-top:8px;"></div>
+    </div>
+  </section>
+
+</div>
+
+<div id="modalOverlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <div>
+        <h3 id="modalTitle">Client</h3>
+        <div class="sub" id="modalSub"></div>
+      </div>
+      <button class="modal-close" id="modalCloseBtn" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"></div>
+  </div>
+</div>
+
+<div id="toastHost"></div>
+
+<script src="/vendor/xlsx.full.min.js"></script>
+<script src="/vendor/qrcode.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+var CATEGORIES = ["AIF Surat","AIF Non Surat","Others-Non Surat","Entrepreneurs","Others Surat"];
+
+// ---------- small string utilities (not screening rules - just text/id helpers) ----------
+function slug(s){
+  return (s||"").toString().toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "x";
+}
+function normSpace(s){ return (s||"").toString().trim().replace(/\s+/g," "); }
+function extractDigits(s){ return (s||"").toString().replace(/\D/g,""); }
+function simpleHash(s){
+  var h = 0;
+  for(var i=0;i<s.length;i++){ h = (h*31 + s.charCodeAt(i)) | 0; }
+  return Math.abs(h).toString(36).slice(0,5);
+}
+
+// Maps the Stored Data "status" filter to the flag codes the SERVER can
+// attach to a record - this is just a lookup table for the dropdown, not a
+// rule: every pass/fail decision is made by server.ps1, not here.
+var FLAG_GROUPS = {
+  name: ["NAME"],
+  phone: ["PHONE"],
+  address: ["ADDR_MISSING","ADDR_SHORT","ADDR_NO_NUMBER","ADDR_FEW_PARTS","ADDR_LANDMARK"],
+  pincode: ["PINCODE","PIN_SURAT","PIN_REGION"],
+  rm: ["RM_MISSING"],
+  company: ["COMPANY"],
+  duplicate: ["DUPLICATE"]
+};
+
+// ---------- state ----------
+var state = { clients: [], staging: [], stagingSummary: {}, dispatchClients: [], tracking: [] };
+var sortState = { key: "status", dir: 1 };
+
+function $(id){ return document.getElementById(id); }
+
+CATEGORIES.forEach(function(c){
+  var o1 = document.createElement("option"); o1.value = c; o1.textContent = c; $("uploadCategory").appendChild(o1);
+});
+
+function toast(msg){
+  var t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  $("toastHost").appendChild(t);
+  setTimeout(function(){ t.remove(); }, 4200);
+}
+
+// ---------- who am I / logout ----------
+var currentUser = { username: "", role: "" };
+function loadWhoAmI(){
+  fetch("/api/me").then(function(r){ return r.json(); }).then(function(res){
+    currentUser = res || {};
+    $("whoAmI").textContent = currentUser.username ? ("Signed in as " + currentUser.username + (currentUser.role === "admin" ? " (admin)" : "")) : "";
+    $("tab-btn-approvals-wrap").hidden = currentUser.role !== "admin";
+    $("tab-btn-dispatch-wrap").hidden = !currentUser.canDispatch;
+  }).catch(function(){});
+}
+$("logoutBtn").addEventListener("click", function(){
+  fetch("/logout", {method:"POST"}).then(function(){ location.href = "/login"; }).catch(function(){ location.href = "/login"; });
+});
+
+// ---------- change username ----------
+$("changeUsernameBtn").addEventListener("click", function(){
+  $("changeUsernamePanel").hidden = !$("changeUsernamePanel").hidden;
+  $("cuNew").value = "";
+});
+$("cuCancelBtn").addEventListener("click", function(){ $("changeUsernamePanel").hidden = true; });
+$("cuSaveBtn").addEventListener("click", function(){
+  var next = $("cuNew").value.trim();
+  if(next.length < 3){ toast("New username must be at least 3 characters."); return; }
+  api("/api/change-username", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({newUsername: next})})
+    .then(function(res){
+      if(res && res.ok === false){ toast(res.error || "Couldn't change username."); return; }
+      currentUser.username = res.username;
+      $("whoAmI").textContent = "Signed in as " + currentUser.username + (currentUser.role === "admin" ? " (admin)" : "");
+      toast("Username changed to " + res.username + ".");
+      $("changeUsernamePanel").hidden = true;
+    })
+    .catch(function(err){ toast("Couldn't change username: " + err.message); });
+});
+
+// ---------- change password ----------
+$("changePasswordBtn").addEventListener("click", function(){
+  $("changePasswordPanel").hidden = !$("changePasswordPanel").hidden;
+  $("cpCurrent").value = ""; $("cpNew").value = ""; $("cpConfirm").value = "";
+});
+$("cpCancelBtn").addEventListener("click", function(){ $("changePasswordPanel").hidden = true; });
+$("cpSaveBtn").addEventListener("click", function(){
+  var current = $("cpCurrent").value;
+  var next = $("cpNew").value;
+  var confirm = $("cpConfirm").value;
+  if(!current || !next){ toast("Fill in both the current and new password."); return; }
+  if(next.length < 8){ toast("New password must be at least 8 characters."); return; }
+  if(next !== confirm){ toast("New password and confirmation don't match."); return; }
+  api("/api/change-password", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({currentPassword: current, newPassword: next})})
+    .then(function(res){
+      if(res && res.ok === false){ toast(res.error || "Couldn't change password."); return; }
+      toast("Password changed. Use it next time this browser asks you to log in.");
+      $("changePasswordPanel").hidden = true;
+    })
+    .catch(function(err){ toast("Couldn't change password: " + err.message); });
+});
+
+// ---------- tabs ----------
+var TABS = ["upload","review","duplicates","stored","dispatch","tracking","approvals"];
+var activeTab = "stored";
+function activateTab(name){
+  activeTab = name;
+  TABS.forEach(function(t){ $("tabpanel-" + t).hidden = t !== name; });
+  document.querySelectorAll(".tab-btn").forEach(function(btn){
+    btn.classList.toggle("active", btn.dataset.tab === name);
+  });
+  updateTopStats();
+  if(name === "review"){ loadReviewData(); }
+  if(name === "dispatch"){ loadDispatchClients(); }
+  if(name === "tracking"){ loadTracking(); }
+  if(name === "approvals"){ loadApprovals(); }
+}
+document.querySelectorAll(".tab-btn").forEach(function(btn){
+  btn.addEventListener("click", function(){ activateTab(btn.dataset.tab); });
+});
+
+// The top summary tiles track whatever's actually on screen: the filtered
+// Stored Data view when that tab is active, the selected category's pending
+// rows on Review Upload, or an unfiltered Stored Data overview elsewhere.
+function countByStatus(rows){
+  var errCount = rows.filter(function(c){ return c.status === "err"; }).length;
+  var warnCount = rows.filter(function(c){ return c.status === "warn"; }).length;
+  return { total: rows.length, err: errCount, warn: warnCount, clean: rows.length - errCount - warnCount };
+}
+function updateTopStats(){
+  var label, counts;
+  if(activeTab === "review"){
+    var cat = $("reviewCategory").value;
+    label = "Showing: Review Upload — " + (cat || "select a category");
+    counts = countByStatus(state.staging);
+  } else if(activeTab === "stored"){
+    var fCat = $("filterCategory").value;
+    label = "Showing: Stored Data — " + (fCat || "All categories");
+    counts = countByStatus(getVisibleStoredRows());
+  } else {
+    label = "Showing: Stored Data — All categories (overview)";
+    counts = countByStatus(state.clients);
+  }
+  $("statsContext").textContent = label;
+  $("stTotal").textContent = counts.total;
+  $("stErr").textContent = counts.err;
+  $("stWarn").textContent = counts.warn;
+  $("stClean").textContent = counts.clean;
+}
+
+// ---------- shared row-cell builders (Stored Data + Review Upload use the same look) ----------
+function buildStatusCell(c){
+  var td = document.createElement("td");
+  var wrap = document.createElement("div"); wrap.className = "status-cell status-" + c.status;
+  var dot = document.createElement("span"); dot.className = "status-dot";
+  var label = document.createElement("span");
+  var n = (c.flags || []).length;
+  label.textContent = c.status === "clean" ? "Clean" : (n + (n === 1 ? " issue" : " issues"));
+  wrap.appendChild(dot); wrap.appendChild(label);
+  td.appendChild(wrap);
+  return td;
+}
+function buildNameCell(c){
+  var td = document.createElement("td"); td.className = "namecell";
+  var strong = document.createElement("strong"); strong.textContent = c.name || "(no name)";
+  var rmSpan = document.createElement("span"); rmSpan.className = "rm"; rmSpan.textContent = "POC: " + (c.rm || "—");
+  td.appendChild(strong); td.appendChild(rmSpan);
+  return td;
+}
+// A company only counts as "unverified" when the server actually flagged it
+// (a real difference, or nothing suggested yet) - not just whenever
+// companyApproved happens to be false, since a suggestion that's merely a
+// legal-suffix rewording never sets companyApproved but needs no badge either.
+function companyNeedsReview(c){
+  return (c.flags || []).some(function(f){ return f.code === "COMPANY"; });
+}
+function buildCompanyCell(c){
+  var td = document.createElement("td");
+  td.textContent = c.company ? (c.companyApproved && c.correctCompanyName ? c.correctCompanyName : c.company) : "—";
+  if(c.company && companyNeedsReview(c)){
+    var unv = document.createElement("span"); unv.className = "pill warn"; unv.style.marginLeft = "6px"; unv.textContent = "unverified";
+    td.appendChild(unv);
+  } else if(c.company){
+    var ok = document.createElement("span"); ok.className = "pill ok"; ok.style.marginLeft = "6px"; ok.textContent = "verified";
+    td.appendChild(ok);
+  }
+  return td;
+}
+
+// ---------- detail modal ----------
+function closeModal(){ $("modalOverlay").hidden = true; }
+$("modalCloseBtn").addEventListener("click", closeModal);
+$("modalOverlay").addEventListener("click", function(e){ if(e.target === $("modalOverlay")) closeModal(); });
+document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeModal(); });
+
+var modalState = { editing: false };
+var MODAL_EDIT_FIELDS = [
+  {key:"name", label:"Name"},
+  {key:"rm", label:"POC / RM"},
+  {key:"clientType", label:"Type"},
+  {key:"phone", label:"Contact Number"},
+  {key:"company", label:"Company"},
+  {key:"address", label:"Address"}
+];
+
+function openDetailModal(c, mode){
+  modalState.editing = false;
+  renderModal(c, mode);
+}
+
+function renderModal(c, mode){
+  $("modalTitle").textContent = c.name || "(no name)";
+  $("modalSub").textContent = (c.category || "—") + " · POC: " + (c.rm || "—") + (mode === "staging" ? " · pending review" : "");
+
+  var body = $("modalBody");
+  body.innerHTML = "";
+  var inputs = {};
+
+  if(modalState.editing){
+    var editGrid = document.createElement("div"); editGrid.className = "modal-fields";
+    MODAL_EDIT_FIELDS.forEach(function(f){
+      var wrap = document.createElement("div"); wrap.className = "modal-field";
+      var k = document.createElement("span"); k.className = "k"; k.textContent = f.label;
+      var input = f.key === "address" ? document.createElement("textarea") : document.createElement("input");
+      if(f.key === "address"){ input.rows = 2; } else { input.type = "text"; }
+      input.value = c[f.key] || "";
+      inputs[f.key] = input;
+      wrap.appendChild(k); wrap.appendChild(input);
+      editGrid.appendChild(wrap);
+    });
+    body.appendChild(editGrid);
+    var editHint = document.createElement("p"); editHint.className = "hint"; editHint.style.margin = "0";
+    editHint.textContent = "Category and pincode aren't edited directly — pincode is read automatically from the address text.";
+    body.appendChild(editHint);
+  } else {
+    var grid = document.createElement("div"); grid.className = "modal-fields";
+    function field(label, value){
+      var wrap = document.createElement("div"); wrap.className = "modal-field";
+      var k = document.createElement("span"); k.className = "k"; k.textContent = label;
+      var v = document.createElement("span"); v.className = "v"; v.textContent = value || "—";
+      wrap.appendChild(k); wrap.appendChild(v);
+      grid.appendChild(wrap);
+    }
+    field("Category", c.category);
+    field("POC / RM", c.rm);
+    field("Type", c.clientType);
+    field("Contact Number", c.phone);
+    field("Company", c.company ? ((c.companyApproved && c.correctCompanyName ? c.correctCompanyName : c.company) + (companyNeedsReview(c) ? "  (unverified)" : "  (verified)")) : "—");
+    field("Address", c.address);
+    field("Pincode (read from address)", c.pincode);
+    body.appendChild(grid);
+
+    var flags = c.flags || [];
+    var head = document.createElement("h4"); head.className = "modal-subhead";
+    head.textContent = flags.length ? ("Issues found — " + flags.length) : "Issues found — none";
+    body.appendChild(head);
+
+    if(flags.length){
+      var list = document.createElement("div"); list.className = "modal-issues";
+      flags.forEach(function(f){
+        var item = document.createElement("div"); item.className = "issue-item " + (f.severity === "error" ? "issue-err" : "issue-warn");
+        var dot = document.createElement("span"); dot.className = "issue-dot";
+        var txt = document.createElement("span"); txt.textContent = f.msg;
+        item.appendChild(dot); item.appendChild(txt);
+        list.appendChild(item);
+      });
+      body.appendChild(list);
+    } else {
+      var okmsg = document.createElement("p"); okmsg.className = "hint"; okmsg.style.margin = "0";
+      okmsg.textContent = "This record passed every automated check.";
+      body.appendChild(okmsg);
+    }
+  }
+
+  var foot = $("modalFoot");
+  foot.innerHTML = "";
+
+  if(modalState.editing){
+    var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost"; cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", function(){ modalState.editing = false; renderModal(c, mode); });
+    var saveBtn = document.createElement("button"); saveBtn.className = "primary"; saveBtn.textContent = "Save changes";
+    saveBtn.addEventListener("click", function(){
+      var patch = {
+        name: normSpace(inputs.name.value),
+        rm: normSpace(inputs.rm.value),
+        clientType: normSpace(inputs.clientType.value),
+        phone: normSpace(inputs.phone.value),
+        address: normSpace(inputs.address.value),
+        updatedAt: Date.now()
+      };
+      var newCompany = normSpace(inputs.company.value);
+      patch.company = newCompany;
+      // Typing a different company name here is a direct correction - it
+      // doesn't need a second sign-off, and (like every other flag) fixing
+      // it is what moves the record into Stored Data on its own.
+      if(newCompany && newCompany !== normSpace(c.company)){
+        patch.companyApproved = true;
+        patch.correctCompanyName = "";
+      }
+      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
+      var isNew = mode === "new";
+      if(isNew){ patch.category = c.category; patch.companyApproved = patch.companyApproved || false; patch.correctCompanyName = patch.correctCompanyName || ""; }
+      // New records are created by the server, which assigns their id.
+      var saveReq = isNew
+        ? api("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(patch)})
+        : api("/api/clients/" + encodeURIComponent(c.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(patch)});
+      saveReq.then(function(){
+        toast((isNew ? "Added " : "Saved changes to ") + (patch.name || "record") + ".");
+        closeModal();
+        refreshAll();
+      }).catch(function(err){
+        saveBtn.disabled = false; saveBtn.textContent = "Save changes";
+        toast("Couldn't save: " + err.message);
+      });
+    });
+    foot.appendChild(cancelBtn); foot.appendChild(saveBtn);
+    return;
+  }
+
+  var editBtn = document.createElement("button"); editBtn.className = "ghost"; editBtn.textContent = "Edit";
+  editBtn.addEventListener("click", function(){ modalState.editing = true; renderModal(c, mode); });
+  foot.appendChild(editBtn);
+
+  if(mode === "staging"){
+    var discardBtn = document.createElement("button"); discardBtn.className = "ghost"; discardBtn.textContent = "Discard";
+    var confirmingD = false;
+    discardBtn.addEventListener("click", function(){
+      if(!confirmingD){
+        confirmingD = true; discardBtn.textContent = "Click again to confirm"; discardBtn.classList.add("danger");
+        setTimeout(function(){ if(confirmingD){ confirmingD = false; discardBtn.textContent = "Discard"; discardBtn.classList.remove("danger"); } }, 4000);
+        return;
+      }
+      api("/api/clients/" + encodeURIComponent(c.id), {method:"DELETE"}).then(function(){
+        toast("Discarded " + (c.name || "row") + ".");
+        closeModal(); refreshAll();
+      }).catch(function(err){ toast("Couldn't discard: " + err.message); });
+    });
+    foot.appendChild(discardBtn);
+  } else {
+    var delBtn = document.createElement("button"); delBtn.className = "ghost"; delBtn.textContent = "Remove this record";
+    var confirming = false;
+    delBtn.addEventListener("click", function(){
+      if(!confirming){
+        confirming = true; delBtn.textContent = "Click again to confirm"; delBtn.classList.add("danger");
+        setTimeout(function(){ if(confirming){ confirming = false; delBtn.textContent = "Remove this record"; delBtn.classList.remove("danger"); } }, 4000);
+        return;
+      }
+      api("/api/clients/" + encodeURIComponent(c.id), {method:"DELETE"}).then(function(){
+        toast("Removed " + (c.name || "row") + ".");
+        closeModal(); refreshAll();
+      }).catch(function(err){ toast("Couldn't remove: " + err.message); });
+    });
+    foot.appendChild(delBtn);
+  }
+
+  $("modalOverlay").hidden = false;
+}
+
+// ---------- local API wiring ----------
+function showBanner(msg){ $("dbBanner").hidden = false; $("dbBanner").textContent = msg; }
+function hideBanner(){ $("dbBanner").hidden = true; }
+
+async function api(path, opts){
+  var res = await fetch(path, opts);
+  if(!res.ok){ throw new Error("Request to " + path + " failed (" + res.status + ")"); }
+  var text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function loadClients(){
+  try{
+    var data = await api("/api/clients");
+    state.clients = data || [];
+    hideBanner();
+    render();
+    if(activeTab === "dispatch"){ loadDispatchClients(); }
+  }catch(err){
+    showBanner("Can't reach the local server — make sure server.ps1 is still running. (" + err.message + ")");
+  }
+}
+
+// Deliberately separate from /api/clients: the server only returns data here
+// if this logged-in user has dispatch access (admins always do), so an admin
+// can restrict who sees the Courier Dispatch Checks tab without touching
+// anyone's access to the rest of the dashboard.
+async function loadDispatchClients(){
+  if(!currentUser.canDispatch){
+    $("dispatchTbody").innerHTML = "";
+    $("dispatchEmpty").hidden = false;
+    $("dispatchEmpty").textContent = "You don't have access to the dispatch page. Ask an admin to grant it.";
+    return;
+  }
+  try{
+    var res = await fetch("/api/dispatch-clients");
+    var body = await res.text();
+    var parsed = body ? JSON.parse(body) : null;
+    if(!res.ok){
+      $("dispatchTbody").innerHTML = "";
+      $("dispatchEmpty").hidden = false;
+      $("dispatchEmpty").textContent = (parsed && parsed.error) || "Couldn't load dispatch data.";
+      return;
+    }
+    state.dispatchClients = parsed || [];
+    renderDispatchTab();
+  }catch(err){
+    $("dispatchEmpty").hidden = false;
+    $("dispatchEmpty").textContent = "Couldn't reach the server: " + err.message;
+  }
+}
+
+async function loadDuplicatesTab(){
+  try{
+    var groups = await api("/api/duplicates");
+    renderDupPanel(groups || []);
+  }catch(err){ /* stats banner already covers connectivity issues */ }
+}
+
+async function loadStagingSummary(){
+  try{
+    var summary = await api("/api/staging-summary");
+    state.stagingSummary = summary || {};
+    var total = 0;
+    Object.keys(state.stagingSummary).forEach(function(k){ total += state.stagingSummary[k]; });
+    $("reviewCount").textContent = total;
+    updateReviewCategoryOptions();
+  }catch(err){ /* ignore - covered by the banner from loadClients */ }
+}
+
+function updateReviewCategoryOptions(){
+  var sel = $("reviewCategory");
+  var current = sel.value;
+  var total = 0;
+  Object.keys(state.stagingSummary).forEach(function(k){ total += state.stagingSummary[k]; });
+  sel.innerHTML = '<option value="">All categories (' + total + ')</option>';
+  CATEGORIES.forEach(function(cat){
+    var count = state.stagingSummary[cat] || 0;
+    var o = document.createElement("option");
+    o.value = cat;
+    o.textContent = cat + (count ? " (" + count + ")" : "");
+    sel.appendChild(o);
+  });
+  if(current){ sel.value = current; }
+}
+
+async function loadReviewData(){
+  var cat = $("reviewCategory").value;
+  try{
+    var url = cat ? "/api/staging?category=" + encodeURIComponent(cat) : "/api/staging";
+    var data = await api(url);
+    state.staging = data || [];
+    renderReviewTable();
+    $("reviewHint").textContent = state.staging.length + " row(s) need attention" + (cat ? " in " + cat : " across all categories") + ".";
+    updateTopStats();
+  }catch(err){
+    toast("Couldn't load review data: " + err.message);
+  }
+}
+
+async function refreshAll(){
+  await loadClients();
+  await loadStagingSummary();
+  await loadDuplicatesTab();
+  if(activeTab === "review"){ await loadReviewData(); }
+  if(activeTab === "tracking"){ await loadTracking(); }
+}
+
+setInterval(refreshAll, 4000);
+refreshAll();
+
+function setUploadEnabled(on){
+  $("uploadBtn").disabled = !on || !$("uploadCategory").value;
+}
+
+// ---------- upload / mapping / import ----------
+var pending = { headers:[], rows:[], category:"" };
+var FIELD_DEFS = [
+  {key:"name", label:"Name of Client", required:true, kw:["name of client","name","recipient","client"]},
+  {key:"rm", label:"POC / RM", required:true, kw:["poc","point of contact","rm","relationship manager","relationship","manager"]},
+  {key:"clientType", label:"Type", required:false, kw:["type","connection"]},
+  {key:"phone", label:"Contact Number", required:true, kw:["contact number","contact","mobile","cell","phone"]},
+  {key:"company", label:"Company Name", required:false, kw:["company","employer","organisation","organization","promoter"]},
+  {key:"address", label:"Address", required:true, kw:["address","addr"]}
+];
+
+$("uploadCategory").addEventListener("change", function(){ setUploadEnabled(true); });
+$("uploadBtn").addEventListener("click", function(){ $("fileInput").click(); });
+
+$("fileInput").addEventListener("change", function(e){
+  var file = e.target.files && e.target.files[0];
+  if(!file) return;
+  pending.category = $("uploadCategory").value;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      var wb = XLSX.read(new Uint8Array(ev.target.result), {type:"array"});
+      var sheet = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:""});
+      rows = rows.filter(function(r){ return r.some(function(cell){ return normSpace(cell) !== ""; }); });
+      if(rows.length < 2){ toast("No data rows found in that file."); return; }
+      pending.headers = rows[0].map(function(h){ return normSpace(h); });
+      pending.rows = rows.slice(1);
+      openMapPanel(file.name);
+    }catch(err){
+      toast("Couldn't read that file: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = "";
+});
+
+function guessColumn(kw){
+  for(var i=0;i<pending.headers.length;i++){
+    var h = pending.headers[i].toLowerCase();
+    if(kw.some(function(k){ return h.indexOf(k) !== -1; })) return i;
+  }
+  return -1;
+}
+
+function openMapPanel(fileName){
+  $("mapFileInfo").textContent = fileName + " — " + pending.rows.length + " rows detected — category: " + pending.category;
+  var grid = $("mapGrid");
+  grid.innerHTML = "";
+  FIELD_DEFS.forEach(function(f){
+    var wrap = document.createElement("div"); wrap.className = "mapfield";
+    var label = document.createElement("label");
+    label.textContent = f.label + " ";
+    if(f.required){ var req = document.createElement("span"); req.className="req"; req.textContent="*"; label.appendChild(req); }
+    var select = document.createElement("select");
+    select.dataset.field = f.key;
+    var guess = guessColumn(f.kw);
+    if(f.required){
+      var chooseOpt = document.createElement("option"); chooseOpt.value = ""; chooseOpt.textContent = "— Choose a column —";
+      select.appendChild(chooseOpt);
+    } else {
+      var noneOpt = document.createElement("option"); noneOpt.value = "-1"; noneOpt.textContent = "— Not in file —";
+      select.appendChild(noneOpt);
+    }
+    pending.headers.forEach(function(h, idx){
+      var opt = document.createElement("option"); opt.value = String(idx); opt.textContent = h || ("Column " + (idx+1));
+      if(idx === guess) opt.textContent += " (auto-detected)";
+      select.appendChild(opt);
+    });
+    select.value = guess !== -1 ? String(guess) : (f.required ? "" : "-1");
+    select.addEventListener("change", updateImportEnabled);
+    wrap.appendChild(label); wrap.appendChild(select);
+    var warn = document.createElement("div"); warn.className = "mapwarn"; warn.dataset.warnFor = f.key;
+    wrap.appendChild(warn);
+    grid.appendChild(wrap);
+  });
+  $("mapPanel").hidden = false;
+  updateImportEnabled();
+}
+function updateImportEnabled(){
+  var ok = true;
+  var selects = Array.from($("mapGrid").querySelectorAll("select"));
+  var byColumn = {};
+  selects.forEach(function(s){
+    $("mapGrid").querySelector('[data-warn-for="' + s.dataset.field + '"]').textContent = "";
+    var f = FIELD_DEFS.find(function(x){ return x.key === s.dataset.field; });
+    if(f.required && s.value === ""){ ok = false; return; }
+    if(s.value === "-1" || s.value === "") return;
+    (byColumn[s.value] = byColumn[s.value] || []).push(s.dataset.field);
+  });
+  Object.keys(byColumn).forEach(function(col){
+    var fields = byColumn[col];
+    if(fields.length > 1){
+      ok = false;
+      fields.forEach(function(fk){
+        var others = fields.filter(function(x){ return x !== fk; }).map(function(fk2){ return FIELD_DEFS.find(function(x){ return x.key === fk2; }).label; });
+        $("mapGrid").querySelector('[data-warn-for="' + fk + '"]').textContent = "Same column as " + others.join(", ") + " — fix before importing";
+      });
+    }
+  });
+  $("importBtn").disabled = !ok;
+}
+$("cancelMapBtn").addEventListener("click", function(){
+  $("mapPanel").hidden = true; pending = {headers:[], rows:[], category:""};
+});
+
+$("importBtn").addEventListener("click", async function(){
+  var mapping = {};
+  $("mapGrid").querySelectorAll("select").forEach(function(s){ mapping[s.dataset.field] = parseInt(s.value,10); });
+  var category = pending.category;
+  var records = pending.rows.map(function(row){
+    function val(key){ var idx = mapping[key]; return idx === -1 || idx === undefined ? "" : normSpace(row[idx]); }
+    var name = val("name");
+    var phone = val("phone");
+    if(!name && !phone) return null;
+    var addr = val("address");
+    var company = val("company");
+    var rm = val("rm");
+    var idBase = slug(category) + "__" + slug(name) + "__" + (extractDigits(phone).slice(-4) || "na") + "__" + simpleHash(addr + "|" + company + "|" + rm);
+    return {
+      id: idBase,
+      name: name, phone: phone, address: addr,
+      rm: rm, clientType: val("clientType"), company: company,
+      category: category, companyApproved: false, correctCompanyName: "",
+      updatedAt: Date.now()
+    };
+  }).filter(Boolean);
+
+  if(!records.length){ toast("No usable rows to import."); return; }
+
+  $("importProgress").hidden = false;
+  var bar = $("importProgress").querySelector("div");
+  bar.style.width = "30%";
+  try{
+    var result = await api("/api/import", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({category: category, records: records})});
+    bar.style.width = "100%";
+    toast("Imported " + (result.count || records.length) + " rows into " + category + " — clean ones went straight to Stored Data, the rest are waiting in Review Upload.");
+    await loadClients();
+    await loadStagingSummary();
+    $("reviewCategory").value = category;
+    await loadReviewData();
+    activateTab("review");
+  }catch(err){
+    toast("Import failed: " + err.message);
+  }
+  setTimeout(function(){ $("importProgress").hidden = true; bar.style.width = "0%"; }, 400);
+  $("mapPanel").hidden = true;
+  pending = {headers:[], rows:[], category:""};
+});
+
+// ---------- Review Upload tab ----------
+$("reviewCategory").addEventListener("change", loadReviewData);
+
+var reviewSortState = { key: "status", dir: 1 };
+var reviewColFilters = {};
+
+function getVisibleReviewRows(){
+  var rows = state.staging.filter(function(c){ return matchesColFilters(c, reviewColFilters); });
+  var accessor = SORT_ACCESSORS[reviewSortState.key] || SORT_ACCESSORS.status;
+  rows.sort(function(a,b){
+    var av = accessor(a), bv = accessor(b);
+    if(av < bv) return -1 * reviewSortState.dir;
+    if(av > bv) return 1 * reviewSortState.dir;
+    return 0;
+  });
+  return rows;
+}
+
+function renderReviewTable(){
+  var tbody = $("reviewTbody");
+  tbody.innerHTML = "";
+  var rows = getVisibleReviewRows();
+  $("reviewEmpty").hidden = rows.length !== 0;
+  if(rows.length === 0){
+    $("reviewEmpty").textContent = state.staging.length ? "No rows match this filter." : "Nothing needs review right now.";
+  }
+  document.querySelectorAll('#reviewTable thead th[data-sort-key]').forEach(function(th){
+    var arrow = th.querySelector(".sort-arrow");
+    arrow.textContent = th.dataset.sortKey === reviewSortState.key ? (reviewSortState.dir === 1 ? "▲" : "▼") : "";
+  });
+  rows.forEach(function(c){
+    var tr = document.createElement("tr");
+    tr.className = c.status === "err" ? "sev-err" : (c.status === "warn" ? "sev-warn" : "");
+
+    var tdStatus = buildStatusCell(c);
+    var tdName = buildNameCell(c);
+    var tdPhone = document.createElement("td"); tdPhone.className = "mono"; tdPhone.textContent = c.phone || "—";
+    var tdType = document.createElement("td"); tdType.textContent = c.clientType || "—";
+    var tdAddr = document.createElement("td"); tdAddr.className = "addr-cell"; tdAddr.textContent = c.address || "—"; tdAddr.title = c.address || "";
+    var tdPin = document.createElement("td"); tdPin.className = "mono"; tdPin.textContent = c.pincode || "—";
+    var tdCompany = buildCompanyCell(c);
+
+    var tdActions = document.createElement("td");
+    var editBtn = document.createElement("button"); editBtn.className = "small ghost"; editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      modalState.editing = true;
+      renderModal(c, "staging");
+      $("modalOverlay").hidden = false;
+    });
+    var discardBtn = document.createElement("button"); discardBtn.className = "small ghost"; discardBtn.textContent = "Discard"; discardBtn.style.marginLeft = "6px";
+    var confirming = false;
+    discardBtn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      if(!confirming){
+        confirming = true; discardBtn.textContent = "Confirm?"; discardBtn.classList.add("danger");
+        setTimeout(function(){ if(confirming){ confirming = false; discardBtn.textContent = "Discard"; discardBtn.classList.remove("danger"); } }, 4000);
+        return;
+      }
+      api("/api/clients/" + encodeURIComponent(c.id), {method:"DELETE"}).then(function(){
+        toast("Discarded " + (c.name || "row") + ".");
+        refreshAll();
+      }).catch(function(err){ toast("Couldn't discard: " + err.message); });
+    });
+    tdActions.appendChild(editBtn); tdActions.appendChild(discardBtn);
+
+    tr.addEventListener("click", function(ev){
+      if(ev.target.closest("button")) return;
+      openDetailModal(c, "staging");
+    });
+
+    [tdStatus,tdName,tdPhone,tdType,tdAddr,tdPin,tdCompany,tdActions].forEach(function(td){ tr.appendChild(td); });
+    tbody.appendChild(tr);
+  });
+}
+document.querySelectorAll('#reviewTable thead th[data-sort-key]').forEach(function(th){
+  th.addEventListener("click", function(ev){
+    if(ev.target.closest(".col-filter-btn")) return;
+    var key = th.dataset.sortKey;
+    if(reviewSortState.key === key){ reviewSortState.dir *= -1; } else { reviewSortState.key = key; reviewSortState.dir = 1; }
+    renderReviewTable();
+  });
+});
+
+// ---------- Stored Data tab ----------
+["searchBox","filterCategory","filterRm","filterFlag"].forEach(function(id){
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+});
+
+var deleteCategoryConfirming = false;
+$("deleteCategoryBtn").addEventListener("click", function(){
+  var cat = $("filterCategory").value;
+  if(!cat) return;
+  var btn = $("deleteCategoryBtn");
+  if(!deleteCategoryConfirming){
+    deleteCategoryConfirming = true;
+    btn.textContent = "Click again to delete all of " + cat;
+    btn.classList.add("danger");
+    setTimeout(function(){ if(deleteCategoryConfirming){ deleteCategoryConfirming = false; btn.textContent = "Delete this category's data"; btn.classList.remove("danger"); } }, 5000);
+    return;
+  }
+  deleteCategoryConfirming = false;
+  btn.classList.remove("danger");
+  api("/api/delete-category", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({category:cat})}).then(function(res){
+    toast("Deleted " + res.count + " record(s) from " + cat + ".");
+    btn.textContent = "Delete this category's data";
+    refreshAll();
+  }).catch(function(err){
+    btn.textContent = "Delete this category's data";
+    toast("Couldn't delete: " + err.message);
+  });
+});
+
+// ---------- add a new row (opens the same modal used for editing) ----------
+function addNewRow(){
+  var cat = $("filterCategory").value;
+  if(!cat){ toast("Select a category above first, then + Add row."); return; }
+  var blank = { id: null, category: cat, name: "", rm: "", clientType: "", phone: "", company: "", address: "", flags: [], status: "" };
+  modalState.editing = true;
+  renderModal(blank, "new");
+}
+$("addRowBtn").addEventListener("click", addNewRow);
+
+var SORT_ACCESSORS = {
+  status: function(c){ var rank = {err:0, warn:1, clean:2}[c.status]; return rank * 1000 - (c.flags || []).length; },
+  name: function(c){ return (c.name || "").toLowerCase(); },
+  phone: function(c){ return (c.phone || "").toLowerCase(); },
+  type: function(c){ return (c.clientType || "").toLowerCase(); },
+  address: function(c){ return (c.address || "").toLowerCase(); },
+  pincode: function(c){ return c.pincode || ""; },
+  company: function(c){ return ((c.companyApproved && c.correctCompanyName) || c.company || "").toLowerCase(); }
+};
+
+// ---------- reusable Excel-style per-column filter (works on any table that
+// has .col-filter-btn buttons in its header row) ----------
+var COL_VALUE_ACCESSORS = {
+  status: function(c){ return c.status === "clean" ? "Clean" : ((c.flags || []).length + (( c.flags || []).length === 1 ? " issue" : " issues")); },
+  name: function(c){ return c.name || "(no name)"; },
+  phone: function(c){ return c.phone || "(blank)"; },
+  type: function(c){ return c.clientType || "(blank)"; },
+  address: function(c){ return c.address || "(blank)"; },
+  pincode: function(c){ return c.pincode || "(none)"; },
+  company: function(c){ return c.company ? ((c.companyApproved && c.correctCompanyName) ? c.correctCompanyName : c.company) : "(none)"; }
+};
+function matchesColFilters(c, filters, accessors){
+  accessors = accessors || COL_VALUE_ACCESSORS;
+  for(var col in filters){
+    if(!filters.hasOwnProperty(col)) continue;
+    var allowed = filters[col];
+    if(!allowed) continue;
+    var v = (accessors[col] || function(){ return ""; })(c);
+    if(!allowed.has(v)) return false;
+  }
+  return true;
+}
+var colFilterPopoverEl = null;
+function closeColFilterPopover(){
+  if(colFilterPopoverEl){ colFilterPopoverEl.remove(); colFilterPopoverEl = null; }
+}
+document.addEventListener("click", function(ev){
+  if(colFilterPopoverEl && !colFilterPopoverEl.contains(ev.target) && !ev.target.closest(".col-filter-btn")){ closeColFilterPopover(); }
+});
+// btn: the ▾ button clicked. colKey: which column. getRows(): current full
+// (unfiltered-by-this-popover) row array for the table. filtersObj: that
+// table's filter-state object, mutated in place. onApply(): re-render.
+function openColFilterPopover(btn, colKey, getRows, filtersObj, onApply, accessors){
+  closeColFilterPopover();
+  accessors = accessors || COL_VALUE_ACCESSORS;
+  var accessor = accessors[colKey];
+  var allRows = getRows();
+  var values = Array.from(new Set(allRows.map(accessor))).sort(function(a,b){ return a.localeCompare(b); });
+  var currentAllowed = filtersObj[colKey] || null;
+
+  var pop = document.createElement("div"); pop.className = "col-filter-popover";
+  var search = document.createElement("input"); search.type = "search"; search.placeholder = "Search values…";
+  pop.appendChild(search);
+  var linkRow = document.createElement("div"); linkRow.className = "col-filter-links";
+  var selAll = document.createElement("a"); selAll.href = "#"; selAll.textContent = "Select all";
+  var selNone = document.createElement("a"); selNone.href = "#"; selNone.textContent = "Clear";
+  linkRow.appendChild(selAll); linkRow.appendChild(selNone);
+  pop.appendChild(linkRow);
+  var list = document.createElement("div"); list.className = "col-filter-list";
+  pop.appendChild(list);
+
+  var checkboxes = [];
+  values.forEach(function(v){
+    var row = document.createElement("label"); row.className = "col-filter-item";
+    var cb = document.createElement("input"); cb.type = "checkbox";
+    cb.checked = !currentAllowed || currentAllowed.has(v);
+    cb.dataset.value = v;
+    var txt = document.createElement("span"); txt.textContent = v;
+    row.appendChild(cb); row.appendChild(txt);
+    list.appendChild(row);
+    checkboxes.push({cb: cb, row: row, value: v});
+  });
+  search.addEventListener("input", function(){
+    var q = search.value.toLowerCase();
+    checkboxes.forEach(function(item){ item.row.hidden = q && item.value.toLowerCase().indexOf(q) === -1; });
+  });
+  selAll.addEventListener("click", function(ev){ ev.preventDefault(); checkboxes.forEach(function(item){ if(!item.row.hidden) item.cb.checked = true; }); });
+  selNone.addEventListener("click", function(ev){ ev.preventDefault(); checkboxes.forEach(function(item){ if(!item.row.hidden) item.cb.checked = false; }); });
+
+  var btnRow = document.createElement("div"); btnRow.className = "row"; btnRow.style.marginTop = "8px";
+  var applyBtn = document.createElement("button"); applyBtn.className = "small primary"; applyBtn.textContent = "Apply";
+  var cancelBtn = document.createElement("button"); cancelBtn.className = "small ghost"; cancelBtn.textContent = "Cancel";
+  applyBtn.addEventListener("click", function(){
+    var checkedVals = checkboxes.filter(function(i){ return i.cb.checked; }).map(function(i){ return i.value; });
+    if(checkedVals.length === values.length || checkedVals.length === 0){ delete filtersObj[colKey]; }
+    else { filtersObj[colKey] = new Set(checkedVals); }
+    btn.classList.toggle("active", filtersObj.hasOwnProperty(colKey));
+    closeColFilterPopover();
+    onApply();
+  });
+  cancelBtn.addEventListener("click", closeColFilterPopover);
+  btnRow.appendChild(applyBtn); btnRow.appendChild(cancelBtn);
+  pop.appendChild(btnRow);
+
+  document.body.appendChild(pop);
+  var r = btn.getBoundingClientRect();
+  pop.style.top = (window.scrollY + r.bottom + 4) + "px";
+  var left = window.scrollX + r.left;
+  if(left + 240 > window.innerWidth){ left = window.innerWidth - 250; }
+  pop.style.left = left + "px";
+  colFilterPopoverEl = pop;
+  search.focus();
+}
+function wireColFilterButtons(tableSelector, getRows, filtersObj, onApply, accessors){
+  document.querySelectorAll(tableSelector + ' thead .col-filter-btn').forEach(function(btn){
+    btn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      openColFilterPopover(btn, btn.dataset.filterCol, getRows, filtersObj, onApply, accessors);
+    });
+  });
+}
+function wireSortHeaders(tableSelector, sortStateObj, onApply){
+  document.querySelectorAll(tableSelector + ' thead th[data-sort-key]').forEach(function(th){
+    th.addEventListener("click", function(ev){
+      if(ev.target.closest(".col-filter-btn")) return;
+      var key = th.dataset.sortKey;
+      if(sortStateObj.key === key){ sortStateObj.dir *= -1; } else { sortStateObj.key = key; sortStateObj.dir = 1; }
+      onApply();
+    });
+  });
+}
+function updateSortArrows(tableSelector, sortStateObj){
+  document.querySelectorAll(tableSelector + ' thead th[data-sort-key]').forEach(function(th){
+    var arrow = th.querySelector(".sort-arrow");
+    if(arrow){ arrow.textContent = th.dataset.sortKey === sortStateObj.key ? (sortStateObj.dir === 1 ? "▲" : "▼") : ""; }
+  });
+}
+
+document.querySelectorAll('#storedTable thead th[data-sort-key]').forEach(function(th){
+  th.addEventListener("click", function(ev){
+    if(ev.target.closest(".col-filter-btn")) return;
+    var key = th.dataset.sortKey;
+    if(sortState.key === key){ sortState.dir *= -1; } else { sortState.key = key; sortState.dir = 1; }
+    render();
+  });
+});
+function updateSortHeaders(){
+  document.querySelectorAll('#storedTable thead th[data-sort-key]').forEach(function(th){
+    var arrow = th.querySelector(".sort-arrow");
+    arrow.textContent = th.dataset.sortKey === sortState.key ? (sortState.dir === 1 ? "▲" : "▼") : "";
+  });
+}
+
+// Category + RM + search only - deliberately excludes the status/flag filter
+// itself, so it can serve as the base population for "how many records have
+// each kind of error" counts regardless of which one is currently selected.
+function baseFilteredStoredRows(){
+  var q = normSpace($("searchBox").value).toLowerCase();
+  var fCat = $("filterCategory").value;
+  var fRm = $("filterRm").value;
+  return state.clients.filter(function(c){
+    if(fCat && c.category !== fCat) return false;
+    if(fRm && normSpace(c.rm) !== fRm) return false;
+    if(q){
+      var hay = [c.name, c.phone, c.address, c.rm].join(" ").toLowerCase();
+      if(hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+}
+
+// A record with several problems matches - and is counted in - every
+// applicable bucket below; the checks are independent OR-matches, not an
+// exclusive partition, so the counts can legitimately add up to more than
+// the base population when multi-error records exist.
+var FLAG_FILTER_DEFS = [
+  {value:"", label:"All records"},
+  {value:"clean", label:"All clean"},
+  {value:"name", label:"Name error"},
+  {value:"phone", label:"Contact number error"},
+  {value:"address", label:"Address error"},
+  {value:"pincode", label:"Pincode error"},
+  {value:"rm", label:"POC / RM missing"},
+  {value:"company", label:"Company unverified"},
+  {value:"duplicate", label:"Duplicate across categories"}
+];
+function matchesFlagFilter(c, fFlag){
+  if(!fFlag) return true;
+  var flags = c.flags || [];
+  if(fFlag === "clean") return flags.length === 0;
+  var codes = FLAG_GROUPS[fFlag] || [];
+  return flags.some(function(f){ return codes.indexOf(f.code) !== -1; });
+}
+
+var storedColFilters = {};
+function getVisibleStoredRows(){
+  var fFlag = $("filterFlag").value;
+  return baseFilteredStoredRows().filter(function(c){ return matchesFlagFilter(c, fFlag) && matchesColFilters(c, storedColFilters); });
+}
+
+function render(){
+  var clients = state.clients;
+
+  var rms = Array.from(new Set(clients.map(function(c){ return normSpace(c.rm); }).filter(Boolean))).sort();
+  var rmSelect = $("filterRm");
+  var currentRm = rmSelect.value;
+  if(rmSelect.dataset.built !== String(rms.length) + rms.join("|")){
+    rmSelect.innerHTML = '<option value="">All RMs</option>';
+    rms.forEach(function(r){ var o=document.createElement("option"); o.value=r; o.textContent=r; rmSelect.appendChild(o); });
+    rmSelect.dataset.built = String(rms.length) + rms.join("|");
+    rmSelect.value = currentRm;
+  }
+
+  var categoryCounts = {};
+  CATEGORIES.forEach(function(cat){ categoryCounts[cat] = 0; });
+  clients.forEach(function(c){ if(categoryCounts.hasOwnProperty(c.category)){ categoryCounts[c.category]++; } });
+  var catSelect = $("filterCategory");
+  var currentCat = catSelect.value;
+  var catSig = CATEGORIES.map(function(cat){ return cat + ":" + categoryCounts[cat]; }).join("|");
+  if(catSelect.dataset.built !== catSig){
+    catSelect.innerHTML = '<option value="">All categories</option>';
+    CATEGORIES.forEach(function(cat){
+      var o = document.createElement("option"); o.value = cat; o.textContent = cat + " (" + categoryCounts[cat] + ")";
+      catSelect.appendChild(o);
+    });
+    catSelect.dataset.built = catSig;
+    catSelect.value = currentCat;
+  }
+  $("storedCount").textContent = clients.length;
+  $("deleteCategoryBtn").disabled = !catSelect.value || !categoryCounts[catSelect.value];
+
+  var baseRows = baseFilteredStoredRows();
+  var flagSelect = $("filterFlag");
+  var currentFlag = flagSelect.value;
+  var flagCounts = FLAG_FILTER_DEFS.map(function(d){ return baseRows.filter(function(c){ return matchesFlagFilter(c, d.value); }).length; });
+  var flagSig = FLAG_FILTER_DEFS.map(function(d,i){ return d.value + ":" + flagCounts[i]; }).join("|");
+  if(flagSelect.dataset.built !== flagSig){
+    flagSelect.innerHTML = "";
+    FLAG_FILTER_DEFS.forEach(function(d, i){
+      var o = document.createElement("option");
+      o.value = d.value;
+      o.textContent = d.label + " (" + flagCounts[i] + ")";
+      flagSelect.appendChild(o);
+    });
+    flagSelect.dataset.built = flagSig;
+    flagSelect.value = currentFlag;
+  }
+
+  var visible = getVisibleStoredRows();
+
+  var accessor = SORT_ACCESSORS[sortState.key] || SORT_ACCESSORS.status;
+  visible.sort(function(a,b){
+    var av = accessor(a), bv = accessor(b);
+    if(av < bv) return -1 * sortState.dir;
+    if(av > bv) return 1 * sortState.dir;
+    return 0;
+  });
+  updateSortHeaders();
+
+  renderTable(visible);
+  updateTopStats();
+}
+
+function renderTable(visible){
+  var tbody = $("tbody");
+  tbody.innerHTML = "";
+  $("emptyState").hidden = state.clients.length !== 0;
+  if(state.clients.length !== 0 && visible.length === 0){
+    var tr = document.createElement("tr");
+    var td = document.createElement("td"); td.colSpan = 8; td.className = "empty"; td.textContent = "No clients match these filters.";
+    tr.appendChild(td); tbody.appendChild(tr);
+    return;
+  }
+  visible.forEach(function(c){
+    var tr = document.createElement("tr");
+    tr.className = c.status === "err" ? "sev-err" : (c.status === "warn" ? "sev-warn" : "");
+
+    var tdStatus = buildStatusCell(c);
+    var tdName = buildNameCell(c);
+    var tdPhone = document.createElement("td"); tdPhone.className = "mono"; tdPhone.textContent = c.phone || "—";
+    var tdType = document.createElement("td"); tdType.textContent = c.clientType || "—";
+    var tdAddr = document.createElement("td"); tdAddr.className = "addr-cell"; tdAddr.textContent = c.address || "—"; tdAddr.title = c.address || "";
+    var tdPin = document.createElement("td"); tdPin.className = "mono"; tdPin.textContent = c.pincode || "—";
+    var tdCompany = buildCompanyCell(c);
+
+    var tdActions = document.createElement("td");
+    var editBtn = document.createElement("button"); editBtn.className = "small ghost"; editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      modalState.editing = true;
+      renderModal(c, "stored");
+      $("modalOverlay").hidden = false;
+    });
+    tdActions.appendChild(editBtn);
+    var delBtn = document.createElement("button"); delBtn.className = "small ghost"; delBtn.textContent = "Remove";
+    var confirming = false;
+    delBtn.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      if(!confirming){
+        confirming = true; delBtn.textContent = "Confirm?"; delBtn.classList.add("danger");
+        setTimeout(function(){ if(confirming){ confirming=false; delBtn.textContent="Remove"; delBtn.classList.remove("danger"); } }, 4000);
+        return;
+      }
+      api("/api/clients/" + encodeURIComponent(c.id), {method:"DELETE"}).then(function(){
+        toast("Removed " + (c.name || "row") + ".");
+        refreshAll();
+      }).catch(function(err){ toast("Couldn't remove: " + err.message); });
+    });
+    tdActions.appendChild(delBtn);
+
+    tr.addEventListener("click", function(ev){
+      if(ev.target.closest("button")) return;
+      openDetailModal(c, "stored");
+    });
+
+    [tdStatus,tdName,tdPhone,tdType,tdAddr,tdPin,tdCompany,tdActions].forEach(function(td){ tr.appendChild(td); });
+    tbody.appendChild(tr);
+  });
+}
+
+function renderDupPanel(groups){
+  $("dupCount").textContent = groups.length;
+  $("stDup").textContent = groups.length;
+  var host = $("dupList");
+  host.innerHTML = "";
+  if(!groups.length){
+    var e = document.createElement("div"); e.className = "hint"; e.textContent = "No name appears in more than one category right now.";
+    host.appendChild(e); return;
+  }
+  groups.forEach(function(g){
+    var box = document.createElement("div"); box.className = "dupgroup";
+    var title = document.createElement("div"); title.className = "name";
+    title.textContent = (g.items[0].name || g.key) + " — appears in " + g.items.length + " places";
+    box.appendChild(title);
+
+    var chosen = g.items[0].id;
+    g.items.forEach(function(it, idx){
+      var opt = document.createElement("div"); opt.className = "dupopt";
+      var label = document.createElement("label");
+      var radio = document.createElement("input"); radio.type = "radio"; radio.name = "dup-" + g.key;
+      radio.checked = idx === 0;
+      radio.addEventListener("change", function(){ chosen = it.id; });
+      var text = document.createElement("span");
+      text.textContent = it.category + " · RM: " + (it.rm || "—") + " · " + (it.phone || "no phone");
+      label.appendChild(radio); label.appendChild(text);
+      opt.appendChild(label);
+      box.appendChild(opt);
+    });
+
+    var resolveBtn = document.createElement("button"); resolveBtn.className = "small primary"; resolveBtn.textContent = "Keep selected, remove the rest";
+    resolveBtn.style.marginTop = "6px";
+    resolveBtn.addEventListener("click", function(){
+      var toRemove = g.items.filter(function(it){ return it.id !== chosen; });
+      api("/api/bulk-delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids: toRemove.map(function(it){ return it.id; })})}).then(function(){
+        toast("Resolved — kept 1, removed " + toRemove.length + ".");
+        refreshAll();
+      }).catch(function(err){ toast("Couldn't resolve: " + err.message); });
+    });
+    box.appendChild(resolveBtn);
+    host.appendChild(box);
+  });
+}
+
+// ---------- Courier Dispatch Checks tab ----------
+var dispatchOpenInfoId = null;
+// subTab: which set of clean records to show ("pending" = not yet scanned,
+// still needs its QR code; "dispatched" = already scanned, shows an audit
+// pop-up instead). layout only applies to the pending sub-tab.
+var dispatchViewState = { subTab: "pending", layout: "list" };
+
+function updateLanWarningBanner(){
+  var banner = $("lanWarningBanner");
+  if(location.hostname === "localhost" || location.hostname === "127.0.0.1"){
+    banner.hidden = false;
+    banner.textContent = "You're viewing this on localhost — QR codes made here will only open from this PC. Open the dashboard using this computer's network address instead (shown when the server starts) so phones on the same WiFi can scan them.";
+  } else {
+    banner.hidden = true;
+  }
+}
+
+function updateDispatchCategoryOptions(){
+  var sel = $("dispatchCategory");
+  var current = sel.value;
+  var counts = {};
+  CATEGORIES.forEach(function(cat){ counts[cat] = 0; });
+  state.dispatchClients.forEach(function(c){
+    if(c.status === "clean" && !c.dispatchedAt && counts.hasOwnProperty(c.category)){ counts[c.category]++; }
+  });
+  var sig = CATEGORIES.map(function(cat){ return cat + ":" + counts[cat]; }).join("|");
+  if(sel.dataset.built !== sig){
+    sel.innerHTML = '<option value="">Select category…</option>';
+    CATEGORIES.forEach(function(cat){
+      var o = document.createElement("option"); o.value = cat; o.textContent = cat + " (" + counts[cat] + " left to dispatch)";
+      sel.appendChild(o);
+    });
+    sel.dataset.built = sig;
+    sel.value = current;
+  }
+  var clean = state.dispatchClients.filter(function(c){ return c.status === "clean"; });
+  $("dispatchCount").textContent = clean.length;
+  $("dispatchSubtabPending").textContent = "Pending Dispatch (" + clean.filter(function(c){ return !c.dispatchedAt; }).length + ")";
+  $("dispatchSubtabDispatched").textContent = "Dispatched (" + clean.filter(function(c){ return !!c.dispatchedAt; }).length + ")";
+}
+$("dispatchCategory").addEventListener("change", renderDispatchTab);
+
+$("dispatchSubtabPending").addEventListener("click", function(){
+  dispatchViewState.subTab = "pending";
+  $("dispatchSubtabPending").className = "small primary";
+  $("dispatchSubtabDispatched").className = "small ghost";
+  $("dispatchLayoutToggle").hidden = false;
+  dispatchOpenInfoId = null;
+  renderDispatchTab();
+});
+$("dispatchSubtabDispatched").addEventListener("click", function(){
+  dispatchViewState.subTab = "dispatched";
+  dispatchViewState.layout = "list";
+  $("dispatchSubtabDispatched").className = "small primary";
+  $("dispatchSubtabPending").className = "small ghost";
+  $("dispatchLayoutToggle").hidden = true;
+  $("dispatchLayoutList").className = "small primary";
+  $("dispatchLayoutGrid").className = "small ghost";
+  dispatchOpenInfoId = null;
+  renderDispatchTab();
+});
+$("dispatchLayoutList").addEventListener("click", function(){
+  dispatchViewState.layout = "list";
+  $("dispatchLayoutList").className = "small primary";
+  $("dispatchLayoutGrid").className = "small ghost";
+  renderDispatchTab();
+});
+$("dispatchLayoutGrid").addEventListener("click", function(){
+  dispatchViewState.layout = "grid";
+  $("dispatchLayoutGrid").className = "small primary";
+  $("dispatchLayoutList").className = "small ghost";
+  dispatchOpenInfoId = null;
+  renderDispatchTab();
+});
+
+function insertDispatchInfoRow(id){
+  var tbody = $("dispatchTbody");
+  var ownerRow = tbody.querySelector('tr[data-client-id="' + id + '"]');
+  var c = state.dispatchClients.find(function(x){ return x.id === id; });
+  if(!ownerRow || !c) return;
+  var infoRow = document.createElement("tr"); infoRow.className = "info-row";
+  var td = document.createElement("td"); td.colSpan = 4;
+  var grid = document.createElement("div"); grid.className = "info-grid";
+  function field(label, value){
+    var k = document.createElement("span"); k.className = "k"; k.textContent = label;
+    var v = document.createElement("span"); v.textContent = value || "—";
+    grid.appendChild(k); grid.appendChild(v);
+  }
+  field("Address", c.address);
+  field("Contact Number", c.phone);
+  field("Pincode", c.pincode);
+  field("Company", c.company ? ((c.companyApproved && c.correctCompanyName) || c.company) : "—");
+  td.appendChild(grid);
+  infoRow.appendChild(td);
+  ownerRow.after(infoRow);
+}
+
+function toggleDispatchInfo(id){
+  var tbody = $("dispatchTbody");
+  var existing = tbody.querySelector("tr.info-row");
+  if(existing) existing.remove();
+  if(dispatchOpenInfoId === id){ dispatchOpenInfoId = null; return; }
+  dispatchOpenInfoId = id;
+  insertDispatchInfoRow(id);
+}
+
+// The pop-up for a dispatched client's audit details - who scanned it and
+// when - reusing the same modal shell as the client detail view but with
+// its own simple, read-mostly content instead of the editable client fields.
+function openDispatchDetailModal(c){
+  $("modalTitle").textContent = c.name || "(no name)";
+  $("modalSub").textContent = (c.category || "—") + " · POC: " + (c.rm || "—");
+
+  var body = $("modalBody");
+  body.innerHTML = "";
+  var grid = document.createElement("div"); grid.className = "modal-fields";
+  function field(label, value){
+    var wrap = document.createElement("div"); wrap.className = "modal-field";
+    var k = document.createElement("span"); k.className = "k"; k.textContent = label;
+    var v = document.createElement("span"); v.className = "v"; v.textContent = value || "—";
+    wrap.appendChild(k); wrap.appendChild(v);
+    grid.appendChild(wrap);
+  }
+  field("Dispatched by", c.dispatchedBy || "(name not recorded)");
+  field("Dispatched at", c.dispatchedAt ? new Date(c.dispatchedAt).toLocaleString() : "—");
+  field("Contact Number", c.phone);
+  field("Address", c.address);
+  body.appendChild(grid);
+
+  var foot = $("modalFoot");
+  foot.innerHTML = "";
+  var undoBtn = document.createElement("button"); undoBtn.className = "ghost"; undoBtn.textContent = "Undo dispatch";
+  undoBtn.addEventListener("click", function(){
+    api("/api/clients/" + encodeURIComponent(c.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dispatchedAt: null, dispatchedBy: null})}).then(function(){
+      toast("Undone — " + (c.name || "record") + " marked as not yet dispatched.");
+      closeModal();
+      loadDispatchClients();
+    }).catch(function(err){ toast("Couldn't undo: " + err.message); });
+  });
+  var closeBtn2 = document.createElement("button"); closeBtn2.className = "primary"; closeBtn2.textContent = "Close";
+  closeBtn2.addEventListener("click", closeModal);
+  foot.appendChild(undoBtn); foot.appendChild(closeBtn2);
+
+  $("modalOverlay").hidden = false;
+}
+
+var DISPATCH_COL_VALUE_ACCESSORS = { name: function(c){ return c.name || "(no name)"; } };
+var dispatchColFilters = {};
+var dispatchSortState = { key: "", dir: 1 };
+
+function renderDispatchTab(){
+  updateLanWarningBanner();
+  updateDispatchCategoryOptions();
+
+  var cat = $("dispatchCategory").value;
+  var tbody = $("dispatchTbody");
+  tbody.innerHTML = "";
+  $("dispatchGrid").innerHTML = "";
+
+  var dispatched = dispatchViewState.subTab === "dispatched";
+  var isGrid = !dispatched && dispatchViewState.layout === "grid";
+  $("dispatchListWrap").hidden = isGrid;
+  $("dispatchGrid").hidden = !isGrid;
+
+  if(!cat){
+    $("dispatchEmpty").hidden = false;
+    $("dispatchEmpty").textContent = "Pick a category above to see its clean, ready-to-dispatch clients.";
+    dispatchOpenInfoId = null;
+    return;
+  }
+
+  var rows = state.dispatchClients.filter(function(c){
+    if(c.category !== cat || c.status !== "clean"){ return false; }
+    if(!matchesColFilters(c, dispatchColFilters, DISPATCH_COL_VALUE_ACCESSORS)){ return false; }
+    return dispatched ? !!c.dispatchedAt : !c.dispatchedAt;
+  });
+  if(dispatchSortState.key === "name"){
+    rows.sort(function(a,b){
+      var av = (a.name||"").toLowerCase(), bv = (b.name||"").toLowerCase();
+      if(av < bv) return -1 * dispatchSortState.dir;
+      if(av > bv) return 1 * dispatchSortState.dir;
+      return 0;
+    });
+  }
+
+  if(!rows.length){
+    $("dispatchEmpty").hidden = false;
+    $("dispatchEmpty").textContent = state.dispatchClients.length && (Object.keys(dispatchColFilters).length)
+      ? "No rows match this filter."
+      : (dispatched ? "Nothing dispatched yet in " + cat + "." : "Nothing left to dispatch in " + cat + " — everything clean here has already been scanned.");
+    dispatchOpenInfoId = null;
+    return;
+  }
+  $("dispatchEmpty").hidden = true;
+
+  if(isGrid){
+    var gridHost = $("dispatchGrid");
+    rows.forEach(function(c){
+      var card = document.createElement("div"); card.className = "dispatch-card";
+      var name = document.createElement("div"); name.className = "name"; name.title = c.name || "(no name)"; name.textContent = c.name || "(no name)";
+      var qrBox = document.createElement("div"); qrBox.className = "qr-box";
+      card.appendChild(name); card.appendChild(qrBox);
+      gridHost.appendChild(card);
+      var qrUrl = location.origin + "/dispatch/" + encodeURIComponent(c.dispatchToken);
+      try{ new QRCode(qrBox, {text: qrUrl, width: 120, height: 120, correctLevel: QRCode.CorrectLevel.M}); }
+      catch(err){ qrBox.textContent = "QR failed"; }
+    });
+    return;
+  }
+
+  var stillOpenId = rows.some(function(c){ return c.id === dispatchOpenInfoId; }) ? dispatchOpenInfoId : null;
+
+  var nameHeader = '<th data-sort-key="name">Name / POC<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="name" title="Filter">&#9662;</button></th>';
+  $("dispatchThead").innerHTML = dispatched
+    ? "<tr>" + nameHeader + "<th></th><th>Dispatch Details</th><th></th></tr>"
+    : "<tr>" + nameHeader + "<th></th><th>QR Code</th><th>Status</th></tr>";
+  wireSortHeaders('#dispatchTable', dispatchSortState, renderDispatchTab);
+  wireColFilterButtons('#dispatchTable', function(){ return state.dispatchClients.filter(function(x){ return x.category === cat && x.status === "clean" && (dispatched ? !!x.dispatchedAt : !x.dispatchedAt); }); }, dispatchColFilters, renderDispatchTab, DISPATCH_COL_VALUE_ACCESSORS);
+  updateSortArrows('#dispatchTable', dispatchSortState);
+
+  rows.forEach(function(c){
+    var tr = document.createElement("tr");
+    tr.dataset.clientId = c.id;
+
+    var tdName = buildNameCell(c);
+
+    var tdInfo = document.createElement("td");
+    var infoBtn = document.createElement("button"); infoBtn.className = "info-btn ghost";
+    infoBtn.textContent = "i";
+    infoBtn.title = "Address: " + (c.address || "—") + "  ·  Contact: " + (c.phone || "—");
+    infoBtn.addEventListener("click", function(){ toggleDispatchInfo(c.id); });
+    tdInfo.appendChild(infoBtn);
+
+    var tdMain = document.createElement("td");
+    var tdStatus = document.createElement("td");
+
+    if(dispatched){
+      var detailsBtn = document.createElement("button"); detailsBtn.className = "small ghost"; detailsBtn.textContent = "View details";
+      detailsBtn.addEventListener("click", function(){ openDispatchDetailModal(c); });
+      tdMain.appendChild(detailsBtn);
+      var pill = document.createElement("span"); pill.className = "pill ok"; pill.textContent = "✓ Dispatched";
+      tdStatus.appendChild(pill);
+    } else {
+      var qrBox = document.createElement("div"); qrBox.className = "qr-box";
+      tdMain.appendChild(qrBox);
+      var qrUrlText = document.createElement("div"); qrUrlText.className = "qr-url";
+      qrUrlText.textContent = location.origin + "/dispatch/" + encodeURIComponent(c.dispatchToken);
+      tdMain.appendChild(qrUrlText);
+      var pending = document.createElement("span"); pending.className = "pill warn"; pending.textContent = "Waiting to be scanned";
+      tdStatus.appendChild(pending);
+    }
+
+    [tdName, tdInfo, tdMain, tdStatus].forEach(function(td){ tr.appendChild(td); });
+    tbody.appendChild(tr);
+
+    if(!dispatched){
+      var qrBoxEl = tdMain.querySelector(".qr-box");
+      var qrUrl = location.origin + "/dispatch/" + encodeURIComponent(c.dispatchToken);
+      try{ new QRCode(qrBoxEl, {text: qrUrl, width: 88, height: 88, correctLevel: QRCode.CorrectLevel.M}); }
+      catch(err){ qrBoxEl.textContent = "QR failed"; }
+    }
+  });
+
+  if(stillOpenId){ insertDispatchInfoRow(stillOpenId); }
+}
+
+// ---------- Live Tracking Status tab ----------
+function trackingStatusGroup(r){
+  if(r.delivered){ return "delivered"; }
+  if(r.lastError){ return "error"; }
+  if(!r.statusName){ return "pending"; }
+  return "progress";
+}
+function trackingStatusLabel(r){
+  var g = trackingStatusGroup(r);
+  if(g === "delivered"){ return r.statusName || "Delivered"; }
+  if(g === "error"){ return "Check failed"; }
+  if(g === "pending"){ return "Not yet checked"; }
+  return r.statusName || "In progress";
+}
+function trackingStatusPillClass(r){
+  var g = trackingStatusGroup(r);
+  if(g === "delivered"){ return "pill ok"; }
+  if(g === "error"){ return "pill err"; }
+  if(g === "pending"){ return "pill cat"; }
+  return "pill warn";
+}
+
+var TRACKING_COL_VALUE_ACCESSORS = {
+  awb: function(r){ return r.awb || "(none)"; },
+  name: function(r){ return r.name || "(no name)"; },
+  state: function(r){ return r.state || "(none)"; },
+  status: function(r){ return trackingStatusLabel(r); },
+  lastCenter: function(r){ return r.lastCenterName || "(none)"; }
+};
+var TRACKING_SORT_ACCESSORS = {
+  awb: function(r){ return r.awb || ""; },
+  name: function(r){ return (r.name || "").toLowerCase(); },
+  state: function(r){ return (r.state || "").toLowerCase(); },
+  status: function(r){ return trackingStatusLabel(r).toLowerCase(); },
+  lastCenter: function(r){ return (r.lastCenterName || "").toLowerCase(); },
+  lastChecked: function(r){ return r.lastCheckedAt || 0; }
+};
+var trackingSortState = { key: "name", dir: 1 };
+var trackingColFilters = {};
+
+async function loadTracking(){
+  try{
+    var data = await api("/api/tracking");
+    state.tracking = data || [];
+    $("trackingCount").textContent = state.tracking.length;
+    renderTrackingTab();
+  }catch(err){ toast("Couldn't load tracking data: " + err.message); }
+}
+
+function renderTrackingTab(){
+  var q = normSpace($("trackingSearchBox").value).toLowerCase();
+  var statusFilter = $("trackingStatusFilter").value;
+  var rows = state.tracking.filter(function(r){
+    if(statusFilter && trackingStatusGroup(r) !== statusFilter){ return false; }
+    if(!matchesColFilters(r, trackingColFilters, TRACKING_COL_VALUE_ACCESSORS)){ return false; }
+    if(!q){ return true; }
+    return [r.awb, r.name, r.state].some(function(v){ return (v || "").toLowerCase().indexOf(q) !== -1; });
+  });
+  var sortAcc = TRACKING_SORT_ACCESSORS[trackingSortState.key] || TRACKING_SORT_ACCESSORS.name;
+  rows.sort(function(a,b){
+    var av = sortAcc(a), bv = sortAcc(b);
+    if(av < bv) return -1 * trackingSortState.dir;
+    if(av > bv) return 1 * trackingSortState.dir;
+    return 0;
+  });
+  updateSortArrows('#trackingTable', trackingSortState);
+
+  var tbody = $("trackingTbody");
+  tbody.innerHTML = "";
+  if(!rows.length){
+    $("trackingEmpty").hidden = false;
+    $("trackingEmpty").textContent = state.tracking.length ? "Nothing matches that search/filter." : "No tracking records yet — import an Excel file to get started.";
+    return;
+  }
+  $("trackingEmpty").hidden = true;
+
+  rows.forEach(function(r){
+    var tr = document.createElement("tr");
+    var tdAwb = document.createElement("td"); tdAwb.className = "mono"; tdAwb.textContent = r.awb || "—";
+    var tdName = document.createElement("td"); tdName.textContent = r.name || "—";
+    var tdState = document.createElement("td"); tdState.textContent = r.state || "—";
+    var tdStatus = document.createElement("td");
+    var pill = document.createElement("span"); pill.className = trackingStatusPillClass(r); pill.textContent = trackingStatusLabel(r);
+    if(r.lastError){ pill.title = r.lastError; }
+    tdStatus.appendChild(pill);
+    var tdCenter = document.createElement("td");
+    if(r.lastCenterName || r.lastCenterContact || r.lastCenterMobile){
+      var centerName = document.createElement("div"); centerName.textContent = r.lastCenterName || "—";
+      tdCenter.appendChild(centerName);
+      if(r.lastCenterContact || r.lastCenterMobile){
+        var poc = document.createElement("div"); poc.className = "qr-url"; poc.style.maxWidth = "none";
+        poc.textContent = [r.lastCenterContact, r.lastCenterMobile].filter(function(v){ return v; }).join(" · ");
+        tdCenter.appendChild(poc);
+      }
+    } else {
+      tdCenter.textContent = "—";
+    }
+    var tdWhen = document.createElement("td"); tdWhen.textContent = r.lastCheckedAt ? new Date(r.lastCheckedAt).toLocaleString() : "—";
+    [tdAwb, tdName, tdState, tdStatus, tdCenter, tdWhen].forEach(function(td){ tr.appendChild(td); });
+    tbody.appendChild(tr);
+  });
+}
+
+$("trackingSearchBox").addEventListener("input", renderTrackingTab);
+$("trackingStatusFilter").addEventListener("change", renderTrackingTab);
+
+$("trackingImportBtn").addEventListener("click", function(){ $("trackingFileInput").click(); });
+$("trackingFileInput").addEventListener("change", function(e){
+  var file = e.target.files && e.target.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      var wb = XLSX.read(new Uint8Array(ev.target.result), {type:"array"});
+      var sheet = wb.Sheets[wb.SheetNames[0]];
+      var rawRows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:""});
+      rawRows = rawRows.filter(function(r){ return r.some(function(cell){ return normSpace(cell) !== ""; }); });
+      if(rawRows.length < 2){ toast("No data rows found in that file."); return; }
+      var headers = rawRows[0].map(function(h){ return normSpace(h).toLowerCase(); });
+      function findCol(kws){
+        for(var i=0;i<headers.length;i++){ if(kws.some(function(k){ return headers[i].indexOf(k) !== -1; })){ return i; } }
+        return -1;
+      }
+      var awbCol = findCol(["tracking id","awb","docket"]);
+      var nameCol = findCol(["name"]);
+      var stateCol = findCol(["state","location"]);
+      if(awbCol === -1 || nameCol === -1 || stateCol === -1){
+        toast("Couldn't find Tracking ID / Name / State columns in that file's header row.");
+        return;
+      }
+      var rows = rawRows.slice(1).map(function(r){
+        return { awb: normSpace(r[awbCol]), name: normSpace(r[nameCol]), state: normSpace(r[stateCol]) };
+      }).filter(function(r){ return r.awb; });
+      if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }
+      $("trackingImportHint").textContent = "Importing " + rows.length + " row(s)…";
+      api("/api/tracking/import", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({rows: rows})})
+        .then(function(res){
+          $("trackingImportHint").textContent = "";
+          toast("Imported: " + res.added + " new, " + res.updated + " updated.");
+          loadTracking();
+        })
+        .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Import failed: " + err.message); });
+    }catch(err){
+      toast("Couldn't read that file: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = "";
+});
+
+$("trackingRefreshBtn").addEventListener("click", function(){
+  $("trackingRefreshBtn").disabled = true;
+  var originalText = $("trackingRefreshBtn").textContent;
+  $("trackingRefreshBtn").textContent = "Checking…";
+  api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({})})
+    .then(function(res){
+      toast("Checked " + res.checked + " AWB(s). (Up to 25 at a time — the rest update automatically within a couple of hours.)");
+      loadTracking();
+    })
+    .catch(function(err){ toast("Refresh failed: " + err.message); })
+    .finally(function(){ $("trackingRefreshBtn").disabled = false; $("trackingRefreshBtn").textContent = originalText; });
+});
+
+// ---------- User Approvals tab (admin only) ----------
+function loadApprovals(){
+  fetch("/api/users").then(function(r){ return r.json(); }).then(function(users){
+    if(!Array.isArray(users)){ toast((users && users.error) || "Couldn't load users."); return; }
+    renderApprovals(users);
+  }).catch(function(err){ toast("Couldn't load users: " + err.message); });
+}
+
+$("preauthBtn").addEventListener("click", function(){
+  var uname = $("preauthUsername").value.trim();
+  if(uname.length < 3){ toast("Username must be at least 3 characters."); return; }
+  fetch("/api/users/preauthorize", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({username: uname})})
+    .then(function(r){ return r.json(); }).then(function(res){
+      if(res.ok){
+        // Shown once - only its hash is stored. Signing up as this username needs it.
+        window.prompt("Give " + res.username + " this one-time invite code. They enter it with their username when signing up:", res.inviteCode);
+        $("preauthUsername").value = ""; loadApprovals();
+      }
+      else { toast(res.error || "Couldn't allow that username."); }
+    }).catch(function(err){ toast("Couldn't allow that username: " + err.message); });
+});
+
+// One checkbox, reused for both the pending and approved lists - it always
+// reflects the server's current canDispatch value and posts the toggle
+// straight away rather than waiting for a save step.
+function buildDispatchToggle(u){
+  var label = document.createElement("label");
+  label.style.display = "inline-flex"; label.style.alignItems = "center"; label.style.gap = "5px";
+  label.style.fontSize = "12px"; label.style.color = "var(--text-muted)"; label.style.cursor = "pointer";
+  var box = document.createElement("input");
+  box.type = "checkbox"; box.checked = !!u.canDispatch;
+  box.addEventListener("change", function(){
+    fetch("/api/users/set-dispatch-access", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({username: u.username, canDispatch: box.checked})})
+      .then(function(r){ return r.json(); }).then(function(res){
+        if(res.ok){ toast((box.checked ? "Granted" : "Revoked") + " dispatch access for " + u.username + "."); }
+        else { box.checked = !box.checked; toast(res.error || "Couldn't change dispatch access."); }
+      }).catch(function(err){ box.checked = !box.checked; toast("Couldn't change dispatch access: " + err.message); });
+  });
+  label.appendChild(box);
+  label.appendChild(document.createTextNode("Dispatch access"));
+  return label;
+}
+
+function renderApprovals(users){
+  var pending = users.filter(function(u){ return u.status === "pending"; });
+  var approved = users.filter(function(u){ return u.status === "approved"; });
+  $("approvalsCount").textContent = pending.length;
+
+  var host = $("approvalsList");
+  host.innerHTML = "";
+
+  var pendingHead = document.createElement("h3"); pendingHead.style.fontSize = "13px"; pendingHead.textContent = "Waiting for approval (" + pending.length + ")";
+  host.appendChild(pendingHead);
+  if(!pending.length){
+    var noPending = document.createElement("div"); noPending.className = "hint"; noPending.textContent = "Nobody is waiting right now.";
+    host.appendChild(noPending);
+  }
+  pending.forEach(function(u){
+    var row = document.createElement("div"); row.className = "reviewrow";
+    var meta = document.createElement("div"); meta.className = "meta";
+    var b = document.createElement("b"); b.textContent = u.username;
+    var span = document.createElement("span"); span.textContent = "Requested " + new Date(u.createdAt).toLocaleString();
+    meta.appendChild(b); meta.appendChild(span);
+
+    var approveBtn = document.createElement("button"); approveBtn.className = "small primary"; approveBtn.textContent = "Approve";
+    approveBtn.addEventListener("click", function(){
+      fetch("/api/users/approve", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({username: u.username})})
+        .then(function(r){ return r.json(); }).then(function(res){
+          if(res.ok){ toast("Approved " + u.username + "."); loadApprovals(); } else { toast(res.error || "Couldn't approve."); }
+        }).catch(function(err){ toast("Couldn't approve: " + err.message); });
+    });
+    var rejectBtn = document.createElement("button"); rejectBtn.className = "small ghost"; rejectBtn.textContent = "Reject";
+    var confirming = false;
+    rejectBtn.addEventListener("click", function(){
+      if(!confirming){ confirming = true; rejectBtn.textContent = "Confirm?"; rejectBtn.classList.add("danger"); setTimeout(function(){ if(confirming){ confirming=false; rejectBtn.textContent="Reject"; rejectBtn.classList.remove("danger"); } }, 4000); return; }
+      fetch("/api/users/reject", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({username: u.username})})
+        .then(function(r){ return r.json(); }).then(function(res){
+          if(res.ok){ toast("Rejected " + u.username + "."); loadApprovals(); } else { toast(res.error || "Couldn't reject."); }
+        }).catch(function(err){ toast("Couldn't reject: " + err.message); });
+    });
+    row.appendChild(meta); row.appendChild(buildDispatchToggle(u)); row.appendChild(approveBtn); row.appendChild(rejectBtn);
+    host.appendChild(row);
+  });
+
+  var approvedHead = document.createElement("h3"); approvedHead.style.fontSize = "13px"; approvedHead.style.marginTop = "18px"; approvedHead.textContent = "Already have access (" + approved.length + ")";
+  host.appendChild(approvedHead);
+  approved.forEach(function(u){
+    var row = document.createElement("div"); row.className = "reviewrow";
+    var meta = document.createElement("div"); meta.className = "meta";
+    var b = document.createElement("b"); b.textContent = u.username + (u.role === "admin" ? "  (admin)" : "");
+    meta.appendChild(b);
+    if(!u.claimed){
+      var note = document.createElement("span"); note.textContent = "Allowed in advance — hasn't signed up yet";
+      meta.appendChild(note);
+    }
+    row.appendChild(meta);
+    if(u.role !== "admin"){ row.appendChild(buildDispatchToggle(u)); }
+    host.appendChild(row);
+  });
+}
+
+wireColFilterButtons('#storedTable', function(){ return state.clients; }, storedColFilters, render);
+wireColFilterButtons('#reviewTable', function(){ return state.staging; }, reviewColFilters, renderReviewTable);
+wireColFilterButtons('#trackingTable', function(){ return state.tracking; }, trackingColFilters, renderTrackingTab, TRACKING_COL_VALUE_ACCESSORS);
+wireSortHeaders('#trackingTable', trackingSortState, renderTrackingTab);
+
+loadWhoAmI();
+
+})();
+</script>
+</body>
+</html>

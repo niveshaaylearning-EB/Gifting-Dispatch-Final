@@ -1,0 +1,159 @@
+<#
+Background poller for the Live Tracking Status tab. Runs independently of
+server.ps1 so tracking keeps updating even if the dashboard's web server
+isn't running at that moment. Reads and writes the same PostgreSQL tracking
+table as the server (see db.ps1 / .env). Needs PowerShell 7+:
+  pwsh .\tracking-poller.ps1
+
+For every AWB in the tracking table that isn't yet marked delivered, and hasn't
+been checked in the last 2 hours (or has never been checked), it calls Shree
+Anjani's own public tracking API - the same one shreeanjani.co.in/tracking
+itself calls - and records the latest status. Once an AWB's status name
+contains "DELIVER", it is never checked again - that's the explicit,
+permanent stopping point.
+
+Checked in small batches with a short pause between each call so a large
+list doesn't fire dozens of requests at once; the loop interval below means
+a shipment that's still pending/in-progress gets picked up again within
+about a minute of becoming due, not several minutes late - while any one
+AWB still only gets actually re-checked roughly every 2 hours based on ITS
+OWN last-checked time, never faster than that once it's already been
+checked at least once. Within each cycle, AWBs that have never been checked
+at all are processed before ones merely due for their next recheck, so a
+brand-new import never waits behind the regular rotation.
+
+Meant to run continuously via the "Niveshaay TDV Dashboard Tracking Poller"
+Startup entry, not by hand.
+#>
+
+$root = $PSScriptRoot
+. (Join-Path $root "db.ps1")
+try {
+  $dbLocation = Initialize-Db
+} catch {
+  Write-Error "Could not connect to the database: $($_.Exception.Message)"
+  exit 1
+}
+
+$CheckIntervalHours = 2
+$BatchSizePerCycle = 40
+$LoopSleepSeconds = 60
+$PerCallDelayMs = 800
+
+# Must match only an ACTUAL "DELIVERED" status, not "OUT FOR DELIVERY" -
+# that status contains the substring "DELIVER" too (it's the start of
+# "DELIVERY"), so a plain -match "DELIVER" would wrongly stop checking a
+# shipment that's still only being attempted today, before delivery is
+# actually confirmed.
+function Test-Delivered($statusName) {
+  if (-not $statusName) { return $false }
+  return $statusName -match "^\s*DELIVERED\b"
+}
+
+# A delivered AWB is skipped from then on - EXCEPT if its last-center/POC
+# details are still missing, in which case it gets exactly one more check
+# to fill that gap in. centerCheckAttempted guards against retrying forever
+# if the courier's API genuinely has no center details for some shipment -
+# once that one gap-fill attempt has run (success or not), it's truly
+# frozen either way, matching "at least try once, don't loop forever."
+function Test-NeedsCheck($rec) {
+  if (-not (Test-Delivered $rec.statusName)) { return $true }
+  if ($rec.lastCenterName) { return $false }
+  return -not $rec.centerCheckAttempted
+}
+
+function Format-CenterContact($ownerName, $managerName) {
+  $names = @()
+  if ($ownerName) { $names += $ownerName.Trim() }
+  if ($managerName -and $managerName.Trim() -ne $ownerName.Trim()) { $names += $managerName.Trim() }
+  return ($names -join " / ")
+}
+
+function Get-AwbStatus($awb) {
+  $uri = "https://api-customer.shreeanjani.co.in/public/awb/$([System.Uri]::EscapeDataString($awb))"
+  try {
+    $resp = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20
+    if (-not $resp.success -or -not $resp.data.booking) { return @{ ok = $false; error = "No booking found for this AWB." } }
+    $b = $resp.data.booking
+    $lc = $resp.data.last_center_details
+    return @{
+      ok = $true
+      statusName = $b.status_name
+      reasonName = $b.reason_name
+      fromCenter = $b.from_center_name
+      toCenter = $b.to_center_name
+      lastCenterName = $(if ($lc) { $lc.center_name } else { "" })
+      lastCenterContact = $(if ($lc) { Format-CenterContact $lc.owner_name $lc.manager_name } else { "" })
+      lastCenterMobile = $(if ($lc) { $(if ($lc.mobile) { $lc.mobile } else { $lc.phone_number }) } else { "" })
+    }
+  } catch {
+    return @{ ok = $false; error = $_.Exception.Message }
+  }
+}
+
+Write-Host "Tracking poller started. Watching the tracking table in $dbLocation every $LoopSleepSeconds seconds, refreshing each AWB roughly every $CheckIntervalHours hours until delivered."
+
+while ($true) {
+  try {
+    $tracking = @{}
+    foreach ($r in (Get-DbTrackingRecords)) { $tracking[$r.awb] = $r }
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $cutoff = $now - ($CheckIntervalHours * 60 * 60 * 1000)
+
+    # Never-checked AWBs sort first (lastCheckedAt treated as 0, oldest
+    # possible), then everything else oldest-checked-first - so within a
+    # batch, a brand-new import always wins over a routine recheck, and
+    # among routine rechecks the most overdue one goes first. A delivered
+    # AWB still missing its center/POC details counts as due immediately
+    # (no need to wait out the 2-hour window - it's a one-time gap-fill,
+    # not a status recheck), and sorts alongside the never-checked ones.
+    $due = @()
+    foreach ($awb in $tracking.Keys) {
+      $rec = $tracking[$awb]
+      if (-not (Test-NeedsCheck $rec)) { continue }
+      $last = $rec.lastCheckedAt
+      $isDelivered = Test-Delivered $rec.statusName
+      if ($isDelivered -or -not $last -or [long]$last -le $cutoff) {
+        $due += [PSCustomObject]@{ Awb = $awb; SortKey = $(if ($isDelivered -or -not $last) { 0 } else { [long]$last }) }
+      }
+    }
+    $due = @($due | Sort-Object SortKey)
+
+    $batch = @($due | Select-Object -First $BatchSizePerCycle -ExpandProperty Awb)
+    if ($due.Count -gt 0) { Write-Host "$(Get-Date -Format 'u')  Checking $($batch.Count) of $($due.Count) due AWB(s)..." }
+
+    foreach ($awb in $batch) {
+      $rec = $tracking[$awb]
+      $wasAlreadyDelivered = Test-Delivered $rec.statusName
+      $result = Get-AwbStatus $awb
+      $rec.lastCheckedAt = $now
+      if ($result.ok) {
+        $rec.statusName = $result.statusName
+        $rec.reasonName = $result.reasonName
+        $rec.fromCenter = $result.fromCenter
+        $rec.toCenter = $result.toCenter
+        $rec.lastCenterName = $result.lastCenterName
+        $rec.lastCenterContact = $result.lastCenterContact
+        $rec.lastCenterMobile = $result.lastCenterMobile
+        $rec.delivered = Test-Delivered $result.statusName
+        $rec.lastError = ""
+        # Only a successful call that came back with no center details
+        # permanently gives up - a network failure below is left eligible
+        # to retry next cycle instead of being treated the same way.
+        if ($wasAlreadyDelivered) { $rec.centerCheckAttempted = $true }
+        if ($rec.delivered -and $rec.lastCenterName) { Write-Host "  $awb ($($rec.name)) -> DELIVERED, center/POC captured - will not be checked again." }
+        elseif ($wasAlreadyDelivered) { Write-Host "  $awb ($($rec.name)) -> already delivered, no center/POC data available from the courier - will not retry." }
+      } else {
+        $rec.lastError = $result.error
+        Write-Host "  $awb -> check failed: $($result.error)"
+      }
+      # Saved per AWB, not once at the end, so the dashboard sees each result
+      # straight away and a crash mid-batch loses nothing already checked.
+      Save-DbTrackingCheck $rec
+      Start-Sleep -Milliseconds $PerCallDelayMs
+    }
+  } catch {
+    Write-Host "Poller cycle error: $($_.Exception.Message)"
+  }
+  Start-Sleep -Seconds $LoopSleepSeconds
+}
