@@ -21,7 +21,10 @@ AWBs. All data is stored in PostgreSQL.
    `Start Dashboard.bat`). It listens on port 8765 (`-Port` to change).
 3. On the very first start against an empty database, an `admin` login is
    created and its password is printed once in the console. Change it after
-   logging in.
+   logging in. To set (or reset) the admin login yourself instead - handy on
+   a host like Render where you can't see a one-time console message, or to
+   recover a locked-out account - set `ADMIN_USERNAME` and `ADMIN_PASSWORD`
+   as environment variables and restart; see `.env.example`.
 4. Start the courier tracking poller as a second, always-running process:
    `pwsh ./tracking-poller.ps1`.
 

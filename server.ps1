@@ -94,14 +94,42 @@ function Test-PasswordAgainst($password, $stored) {
   return [System.Security.Cryptography.CryptographicOperations]::FixedTimeEquals($computed, $expected)
 }
 
-# The very first start against an empty users table creates the admin login.
-# The insert is conflict-safe, so two instances starting at once can't both
-# create (and print) one.
+# Admin credentials come from the environment, never hardcoded, so they can
+# be set/changed from the host's environment variables alone (e.g. Render's
+# "Environment" tab) and take effect on the next restart - no code or .env
+# file edit needed. ADMIN_USERNAME defaults to "admin" if unset.
+#
+# - ADMIN_PASSWORD set: that account's password is (re)set to it on every
+#   start - the account is created first if it doesn't exist yet. This also
+#   doubles as a password-reset tool: point ADMIN_USERNAME at any existing
+#   locked-out account and restart.
+# - ADMIN_PASSWORD unset: falls back to the original behavior - on the very
+#   first start against an empty users table, a random password is generated
+#   and printed once to the console.
+$AdminUsername = Get-AppSetting "ADMIN_USERNAME" "admin"
+$AdminPasswordOverride = Get-AppSetting "ADMIN_PASSWORD" $null
+
 $firstRunPassword = $null
-if ((Get-DbUserCount) -eq 0) {
+if ($AdminPasswordOverride) {
+  if ($AdminPasswordOverride.Length -lt $MinPasswordLength) {
+    Write-Error "ADMIN_PASSWORD must be at least $MinPasswordLength characters."
+    exit 1
+  }
+  $h = New-PasswordHash $AdminPasswordOverride
+  $existingAdmin = Get-DbUser $AdminUsername
+  if ($existingAdmin) {
+    Set-DbUserPassword $AdminUsername $h
+  } else {
+    $admin = @{ username = $AdminUsername; salt = $h.salt; hash = $h.hash; iterations = $h.iterations; role = "admin"; status = "approved"; canDispatch = $false; createdAt = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) }
+    [void](Add-DbUser $admin)
+  }
+  Write-Host "  Admin password for '$AdminUsername' was set from the ADMIN_PASSWORD environment variable." -ForegroundColor DarkGray
+} elseif ((Get-DbUserCount) -eq 0) {
+  # The insert is conflict-safe, so two instances starting at once can't both
+  # create (and print) one.
   $candidatePassword = New-RandomPassword
   $h = New-PasswordHash $candidatePassword
-  $admin = @{ username = "admin"; salt = $h.salt; hash = $h.hash; iterations = $h.iterations; role = "admin"; status = "approved"; canDispatch = $false; createdAt = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) }
+  $admin = @{ username = $AdminUsername; salt = $h.salt; hash = $h.hash; iterations = $h.iterations; role = "admin"; status = "approved"; canDispatch = $false; createdAt = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) }
   if (Add-DbUser $admin) { $firstRunPassword = $candidatePassword }
 }
 
@@ -740,7 +768,7 @@ if ($lanEnabled) {
 }
 if ($firstRunPassword) {
   Write-Host "  FIRST-TIME SETUP - a login was just created for this dashboard:" -ForegroundColor Cyan
-  Write-Host "    Username: admin" -ForegroundColor Cyan
+  Write-Host "    Username: $AdminUsername" -ForegroundColor Cyan
   Write-Host "    Password: $firstRunPassword" -ForegroundColor Cyan
   Write-Host "  Write this down now. Change it after logging in (Change Password, top right of the dashboard)." -ForegroundColor Yellow
 }

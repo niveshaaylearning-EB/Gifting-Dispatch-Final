@@ -44,6 +44,10 @@ services:
       DB_SSLMODE: Disable
       TRUST_PROXY: ${TRUST_PROXY:-false}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Optional: set/reset the admin login from .env instead of the console
+      # message (see .env.example). Leave unset for the original behavior.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:
       - "8765:8765"
 
