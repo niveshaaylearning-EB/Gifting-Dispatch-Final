@@ -102,6 +102,21 @@ button.small{padding:5px 10px; font-size:12px; min-height:30px;}
 .pill.ok{background:var(--good-soft); color:var(--good);}
 .pill.cat{background:var(--surface-2); color:var(--text-muted);}
 
+.stat-cards{display:flex; flex-wrap:wrap; gap:10px; margin:12px 0;}
+.stat-card{
+  flex:1 1 130px; min-width:130px; text-align:left; cursor:pointer;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+  padding:10px 14px; font:inherit; color:inherit;
+}
+.stat-card:hover{border-color:var(--accent);}
+.stat-card.active{border-color:var(--accent); background:var(--accent-soft);}
+.stat-card .n{display:block; font-family:"IBM Plex Mono",monospace; font-size:22px; font-weight:600; line-height:1.2; font-variant-numeric:tabular-nums;}
+.stat-card .l{display:block; font-size:11.5px; color:var(--text-muted); letter-spacing:.02em; margin-top:2px;}
+.stat-card.c-good .n{color:var(--good);}
+.stat-card.c-warn .n{color:var(--warn);}
+.stat-card.c-bad .n{color:var(--bad);}
+.stat-card.c-accent .n{color:var(--accent);}
+
 .upload-zone{display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
 .hint{font-size:12px; color:var(--text-muted); margin-top:8px;}
 .progress{height:8px; border-radius:5px; background:var(--surface-2); overflow:hidden; margin-top:10px;}
@@ -320,6 +335,12 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
       </div>
       <div class="hint">Expected columns (any order): Name, POC / RM, Type, Contact Number, Company Name, Address &mdash; none are required to import. Whatever a sheet has is accepted as-is; map only the columns it actually contains and leave the rest as &ldquo;Not in file&rdquo;. Pincode is read automatically from the address text.</div>
 
+      <div class="row" style="margin-top:14px; align-items:center;">
+        <span class="hint" id="uploadCategoryCount" style="margin:0;"></span>
+        <button class="ghost" id="uploadDeleteCategoryBtn" disabled title="Select a category with data to enable this">Delete this category's data</button>
+      </div>
+      <div class="hint">Deletes every record in the selected category - Stored Data and Review Upload rows alike - not just the ones currently visible in another tab.</div>
+
       <div id="mapPanel" hidden>
         <div class="hint" id="mapFileInfo"></div>
         <div class="mapgrid" id="mapGrid"></div>
@@ -453,6 +474,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
         <button class="ghost small" id="trackingRefreshBtn">Refresh now</button>
         <span class="hint" id="trackingImportHint" style="margin-top:0;"></span>
       </div>
+      <div class="stat-cards" id="trackingStatCards"></div>
       <div class="row" style="margin-top:10px;">
         <input type="search" id="trackingSearchBox" placeholder="Search AWB, name, state&hellip;" style="flex:1 1 220px;">
         <select id="trackingStatusFilter">
@@ -996,6 +1018,52 @@ function setUploadEnabled(on){
   $("uploadBtn").disabled = !on || !$("uploadCategory").value;
 }
 
+// Total records in the selected category, across Stored Data AND Review
+// Upload - unlike the Stored Data tab's own delete button (which only ever
+// saw clean records), so a category stuck entirely in Review Upload can
+// still be deleted right from here.
+function updateUploadCategoryState(){
+  var cat = $("uploadCategory").value;
+  var countEl = $("uploadCategoryCount");
+  var btn = $("uploadDeleteCategoryBtn");
+  if(!cat){
+    countEl.textContent = "";
+    btn.disabled = true;
+    btn.title = "Select a category with data to enable this";
+    return;
+  }
+  var cleanCount = state.clients.filter(function(c){ return c.category === cat; }).length;
+  var flaggedCount = state.stagingSummary[cat] || 0;
+  var total = cleanCount + flaggedCount;
+  countEl.textContent = total + " record(s) currently stored in " + cat + ".";
+  btn.disabled = total === 0;
+  btn.title = total === 0 ? "No records in this category yet" : "";
+}
+
+var uploadDeleteCategoryConfirming = false;
+$("uploadDeleteCategoryBtn").addEventListener("click", function(){
+  var cat = $("uploadCategory").value;
+  if(!cat) return;
+  var btn = $("uploadDeleteCategoryBtn");
+  if(!uploadDeleteCategoryConfirming){
+    uploadDeleteCategoryConfirming = true;
+    btn.textContent = "Click again to delete all of " + cat;
+    btn.classList.add("danger");
+    setTimeout(function(){ if(uploadDeleteCategoryConfirming){ uploadDeleteCategoryConfirming = false; btn.textContent = "Delete this category's data"; btn.classList.remove("danger"); } }, 5000);
+    return;
+  }
+  uploadDeleteCategoryConfirming = false;
+  btn.classList.remove("danger");
+  api("/api/delete-category", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({category:cat})}).then(function(res){
+    toast("Deleted " + res.count + " record(s) from " + cat + ".");
+    btn.textContent = "Delete this category's data";
+    refreshAll();
+  }).catch(function(err){
+    btn.textContent = "Delete this category's data";
+    toast("Couldn't delete: " + err.message);
+  });
+});
+
 // ---------- upload / mapping / import ----------
 var pending = { headers:[], rows:[], category:"" };
 // No field is required to enable import - whatever columns a sheet actually
@@ -1011,7 +1079,7 @@ var FIELD_DEFS = [
   {key:"address", label:"Address", kw:["address","addr"]}
 ];
 
-$("uploadCategory").addEventListener("change", function(){ setUploadEnabled(true); });
+$("uploadCategory").addEventListener("change", function(){ setUploadEnabled(true); updateUploadCategoryState(); });
 $("uploadBtn").addEventListener("click", function(){ $("fileInput").click(); });
 
 $("fileInput").addEventListener("change", function(e){
@@ -1491,6 +1559,7 @@ function render(){
   var categoryCounts = {};
   CATEGORIES.forEach(function(cat){ categoryCounts[cat] = 0; });
   clients.forEach(function(c){ if(categoryCounts.hasOwnProperty(c.category)){ categoryCounts[c.category]++; } });
+  updateUploadCategoryState();
   var catSelect = $("filterCategory");
   var currentCat = catSelect.value;
   var catSig = CATEGORIES.map(function(cat){ return cat + ":" + categoryCounts[cat]; }).join("|");
@@ -1953,7 +2022,70 @@ async function loadTracking(){
   }catch(err){ toast("Couldn't load tracking data: " + err.message); }
 }
 
+// Cards reflect whatever distinct statuses actually exist in the data right
+// now - "Delivered" and "Check failed" are always their own cards, and every
+// other real statusName the courier has reported (in transit, out for
+// delivery, booked, etc.) gets its own card too, rather than guessing a
+// fixed list of names that might not match what the courier's API actually
+// sends back.
+function renderTrackingStatCards(){
+  var host = $("trackingStatCards");
+  if(!host) return;
+  host.innerHTML = "";
+  var byGroup = { pending: 0, delivered: 0, error: 0 };
+  var progressByLabel = {};
+  state.tracking.forEach(function(r){
+    var g = trackingStatusGroup(r);
+    if(g === "progress"){
+      var label = trackingStatusLabel(r);
+      progressByLabel[label] = (progressByLabel[label] || 0) + 1;
+    } else {
+      byGroup[g] = (byGroup[g] || 0) + 1;
+    }
+  });
+  var groupFilter = $("trackingStatusFilter").value;
+  var labelFilter = (trackingColFilters.status && trackingColFilters.status.size === 1) ? Array.from(trackingColFilters.status)[0] : null;
+
+  function makeCard(label, count, colorClass, isActive, onClick){
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "stat-card" + (colorClass ? " " + colorClass : "") + (isActive ? " active" : "");
+    var n = document.createElement("span"); n.className = "n"; n.textContent = count;
+    var l = document.createElement("span"); l.className = "l"; l.textContent = label;
+    btn.appendChild(n); btn.appendChild(l);
+    btn.addEventListener("click", onClick);
+    host.appendChild(btn);
+  }
+  // Mutates the existing trackingColFilters object in place rather than
+  // reassigning it - wireColFilterButtons captured a reference to this same
+  // object when the page loaded, so replacing it outright would silently
+  // desync the column-filter (&#9662;) popover from what the cards show.
+  function clearTrackingColFilters(){
+    Object.keys(trackingColFilters).forEach(function(k){ delete trackingColFilters[k]; });
+  }
+  function selectGroup(g){
+    $("trackingStatusFilter").value = g;
+    clearTrackingColFilters();
+    renderTrackingTab();
+  }
+  function selectLabel(label){
+    $("trackingStatusFilter").value = "";
+    clearTrackingColFilters();
+    trackingColFilters.status = new Set([label]);
+    renderTrackingTab();
+  }
+
+  makeCard("Total AWBs", state.tracking.length, "c-accent", !groupFilter && !labelFilter, function(){ selectGroup(""); });
+  makeCard("Not yet checked", byGroup.pending || 0, "", groupFilter === "pending", function(){ selectGroup("pending"); });
+  Object.keys(progressByLabel).sort(function(a,b){ return progressByLabel[b] - progressByLabel[a]; }).forEach(function(label){
+    makeCard(label, progressByLabel[label], "c-warn", !groupFilter && labelFilter === label, function(){ selectLabel(label); });
+  });
+  makeCard("Delivered", byGroup.delivered || 0, "c-good", groupFilter === "delivered", function(){ selectGroup("delivered"); });
+  makeCard("Check failed", byGroup.error || 0, "c-bad", groupFilter === "error", function(){ selectGroup("error"); });
+}
+
 function renderTrackingTab(){
+  renderTrackingStatCards();
   var q = normSpace($("trackingSearchBox").value).toLowerCase();
   var statusFilter = $("trackingStatusFilter").value;
   var rows = state.tracking.filter(function(r){
