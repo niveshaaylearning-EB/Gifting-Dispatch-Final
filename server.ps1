@@ -7,14 +7,14 @@ Needs PowerShell 7+. All data (accounts, sessions, client records, courier
 tracking) lives in PostgreSQL - see db.ps1 and .env. Nothing is written to
 local files.
 
-All screening (name/phone/address/pincode/RM/company/duplicate checks) runs
-HERE on the server. The browser only displays what this file computes and
-sends back - it does not decide pass/fail on its own.
+All screening (name/phone/pincode/RM/duplicate checks) runs HERE on the
+server. The browser only displays what this file computes and sends back -
+it does not decide pass/fail on its own.
 
 There is no manual approval step. Where a record lives is decided purely by
 its live computed status: anything with zero flags (status "clean") is
-Stored Data; anything with one or more flags - a name/phone/address/pincode/
-RM problem, or a same-name-in-another-category duplicate - is Review Upload,
+Stored Data; anything with one or more flags - a name/phone/pincode/RM
+problem, or a same-name-in-another-category duplicate - is Review Upload,
 automatically, for every category at once. Editing a flagged record so it
 has no flags left moves it into Stored Data on its own, with no click
 required. A record can also be moved to Stored Data directly, flags and all,
@@ -351,10 +351,19 @@ function Validate-Landline($raw) {
 
 function Validate-ContactNumber($raw) {
   if (-not (NormSpace $raw)) { return @{ ok = $false; msg = "Contact number missing" } }
-  $m = Validate-Mobile $raw
-  if ($m.ok) { return @{ ok = $true; kind = "mobile"; cleaned = $m.cleaned } }
-  $l = Validate-Landline $raw
-  if ($l.ok -and -not $l.skip) { return @{ ok = $true; kind = "landline"; cleaned = $l.cleaned } }
+  # A sheet sometimes lists more than one number for the same contact,
+  # separated by "/" (e.g. "2029970077/9004827272"). Extracting digits from
+  # the whole string at once would run both numbers together into one
+  # too-long, invalid number - split on "/" first and check each candidate
+  # on its own. Only one of them needs to be valid for the field to pass.
+  $parts = @(($raw -split '/') | ForEach-Object { NormSpace $_ } | Where-Object { $_ -ne '' })
+  if ($parts.Count -eq 0) { $parts = @((NormSpace $raw)) }
+  foreach ($part in $parts) {
+    $m = Validate-Mobile $part
+    if ($m.ok) { return @{ ok = $true; kind = "mobile"; cleaned = $m.cleaned } }
+    $l = Validate-Landline $part
+    if ($l.ok -and -not $l.skip) { return @{ ok = $true; kind = "landline"; cleaned = $l.cleaned } }
+  }
   $d = ExtractDigits $raw
   $nr = NormSpace $raw
   return @{ ok = $false; msg = "'$nr' ($($d.Length) digits) doesn't match a valid 10-digit mobile or STD+landline number" }
@@ -395,7 +404,11 @@ function Get-RegionFlags($pinDigits, $address, $category) {
   $flags = @()
   $addr = (NormSpace $address).ToLower()
   $first = $pinDigits.Substring(0, 1)
-  $isSurat = $category -and ($category -match '(?i)surat')
+  # "surat" alone would also match "AIF Non Surat" / "Others-Non Surat" -
+  # those categories mean people OUTSIDE Surat, so they must NOT be held to
+  # the Gujarat/pincode-starts-with-3 rule. Only a category that says Surat
+  # without also saying Non is actually Surat-based.
+  $isSurat = $category -and ($category -match '(?i)surat') -and ($category -notmatch '(?i)non')
   if ($isSurat -and $first -ne "3") {
     $flags += @{ code = "PIN_SURAT"; severity = "error"; msg = "Category is Surat-based but pincode starts with $first, not 3 (Gujarat)" }
   }
@@ -417,20 +430,11 @@ function Get-RegionFlags($pinDigits, $address, $category) {
   return ,$flags
 }
 
-function Validate-Address($addr) {
-  $a = NormSpace $addr
-  if (-not $a) { return ,@(@{ code = "ADDR_MISSING"; severity = "error"; msg = "Address missing" }) }
-  $flags = @()
-  if ($a.Length -lt 15) { $flags += @{ code = "ADDR_SHORT"; severity = "error"; msg = "Address looks too short/incomplete" } }
-  $segments = @($a -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-  $hasDigit = $a -match '\d'
-  if (-not $hasDigit) { $flags += @{ code = "ADDR_NO_NUMBER"; severity = "warn"; msg = "No house/flat/building number found - verify address is complete" } }
-  if ($segments.Count -lt 2) { $flags += @{ code = "ADDR_FEW_PARTS"; severity = "warn"; msg = "Very few parts - verify it includes area, city and state, not just a building or landmark" } }
-  if ($a -match '(?i)^(near|opp\.?|opposite|behind|beside|next to)\b' -and $segments.Count -le 1) {
-    $flags += @{ code = "ADDR_LANDMARK"; severity = "error"; msg = "Address appears to be only a landmark reference" }
-  }
-  return ,$flags
-}
+# The address itself is only checked for what it needs to produce a usable
+# pincode, state and city match (PINCODE/PIN_SURAT/PIN_REGION below) - not
+# for building numbers, landmarks, or how many comma-separated parts it has.
+# That stricter checking flagged plenty of genuinely fine addresses, so it's
+# gone; pincode/state/city are what actually matter for dispatch.
 
 # Company names are never automatically flagged for review - there's no
 # reliable way to verify one from the sheet data alone, and a noisy "unverified"
@@ -442,7 +446,6 @@ function Compute-RecordFlags($rec) {
   if (-not $n.ok) { $flags += @{ code = "NAME"; severity = "error"; msg = $n.msg } }
   $ph = Validate-ContactNumber $rec.phone
   if (-not $ph.ok) { $flags += @{ code = "PHONE"; severity = "error"; msg = $ph.msg } }
-  $flags += (Validate-Address $rec.address)
   $pinRaw = Extract-PincodeFromAddress $rec.address
   if (-not $pinRaw) {
     $flags += @{ code = "PINCODE"; severity = "error"; msg = "No 6-digit pincode found in the address - add one if available" }
@@ -1158,7 +1161,7 @@ while ($listener.IsListening) {
     }
     elseif ($method -eq "GET" -and $path -eq "/api/staging") {
       # Review Upload = every record that currently has at least one flag -
-      # a name/phone/address/pincode/RM problem, or a cross-category
+      # a name/phone/pincode/RM problem, or a cross-category
       # duplicate - regardless of category, except one marked manualClean.
       # Fixing a record so it has zero flags left (or marking it manualClean)
       # is what moves it out of here; there is no separate approval step.

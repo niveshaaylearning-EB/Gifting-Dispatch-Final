@@ -1,7 +1,7 @@
 # Gift Dispatch QC
 
 Internal dashboard for screening Diwali gift-dispatch records (name, phone,
-address, pincode, RM, company and duplicate checks), generating QR codes that
+pincode/state/city, RM and duplicate checks), generating QR codes that
 couriers scan to mark a gift dispatched, and tracking Shree Anjani courier
 AWBs. All data is stored in PostgreSQL.
 

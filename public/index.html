@@ -356,9 +356,10 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-review" data-tabpanel="review" hidden>
     <div class="card">
       <h2>Review Upload</h2>
-      <div class="sub">Every record with an issue lands here &mdash; a name/phone/address/pincode/POC problem, or a duplicate. Fix a row (click it, or use Edit) and it moves itself into Stored Data automatically the moment it has no issues left, or use &ldquo;Move to Clean&rdquo; to send it there as-is if you've checked it by hand and it's fine.</div>
+      <div class="sub">Every record with an issue lands here &mdash; a name/phone/pincode/POC problem, or a duplicate. Fix a row (click it, or use Edit) and it moves itself into Stored Data automatically the moment it has no issues left, or use &ldquo;Move to Clean&rdquo; to send it there as-is if you've checked it by hand and it's fine.</div>
       <div class="row">
         <select id="reviewCategory"><option value="">All categories</option></select>
+        <select id="reviewFlagFilter"><option value="">All issues</option></select>
         <span class="hint" id="reviewHint" style="margin-top:0;"></span>
       </div>
     </div>
@@ -562,7 +563,6 @@ function simpleHash(s){
 var FLAG_GROUPS = {
   name: ["NAME"],
   phone: ["PHONE"],
-  address: ["ADDR_MISSING","ADDR_SHORT","ADDR_NO_NUMBER","ADDR_FEW_PARTS","ADDR_LANDMARK"],
   pincode: ["PINCODE","PIN_SURAT","PIN_REGION"],
   rm: ["RM_MISSING"],
   duplicate: ["DUPLICATE"]
@@ -1216,12 +1216,42 @@ $("importBtn").addEventListener("click", async function(){
 
 // ---------- Review Upload tab ----------
 $("reviewCategory").addEventListener("change", loadReviewData);
+$("reviewFlagFilter").addEventListener("change", renderReviewTable);
 
 var reviewSortState = { key: "status", dir: 1 };
 var reviewColFilters = {};
 
+// Every row here has at least one flag already (that's what makes it a
+// Review Upload row), so there's no "All clean" option - just a way to
+// narrow down to one kind of problem at a time.
+var REVIEW_FLAG_FILTER_DEFS = [
+  {value:"", label:"All issues"},
+  {value:"name", label:"Name error"},
+  {value:"phone", label:"Contact number error"},
+  {value:"pincode", label:"Pincode error"},
+  {value:"rm", label:"POC / RM missing"},
+  {value:"duplicate", label:"Duplicate across categories"}
+];
+function updateReviewFlagOptions(){
+  var sel = $("reviewFlagFilter");
+  var current = sel.value;
+  var counts = REVIEW_FLAG_FILTER_DEFS.map(function(d){ return state.staging.filter(function(c){ return matchesFlagFilter(c, d.value); }).length; });
+  var sig = REVIEW_FLAG_FILTER_DEFS.map(function(d,i){ return d.value + ":" + counts[i]; }).join("|");
+  if(sel.dataset.built === sig){ return; }
+  sel.innerHTML = "";
+  REVIEW_FLAG_FILTER_DEFS.forEach(function(d, i){
+    var o = document.createElement("option");
+    o.value = d.value;
+    o.textContent = d.label + " (" + counts[i] + ")";
+    sel.appendChild(o);
+  });
+  sel.dataset.built = sig;
+  sel.value = current;
+}
+
 function getVisibleReviewRows(){
-  var rows = state.staging.filter(function(c){ return matchesColFilters(c, reviewColFilters); });
+  var fFlag = $("reviewFlagFilter").value;
+  var rows = state.staging.filter(function(c){ return matchesFlagFilter(c, fFlag) && matchesColFilters(c, reviewColFilters); });
   var accessor = SORT_ACCESSORS[reviewSortState.key] || SORT_ACCESSORS.status;
   rows.sort(function(a,b){
     var av = accessor(a), bv = accessor(b);
@@ -1233,6 +1263,7 @@ function getVisibleReviewRows(){
 }
 
 function renderReviewTable(){
+  updateReviewFlagOptions();
   var tbody = $("reviewTbody");
   tbody.innerHTML = "";
   var rows = getVisibleReviewRows();
@@ -1523,10 +1554,8 @@ var FLAG_FILTER_DEFS = [
   {value:"clean", label:"All clean"},
   {value:"name", label:"Name error"},
   {value:"phone", label:"Contact number error"},
-  {value:"address", label:"Address error"},
   {value:"pincode", label:"Pincode error"},
   {value:"rm", label:"POC / RM missing"},
-  {value:"company", label:"Company unverified"},
   {value:"duplicate", label:"Duplicate across categories"}
 ];
 function matchesFlagFilter(c, fFlag){
