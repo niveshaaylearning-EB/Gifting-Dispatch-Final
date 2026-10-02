@@ -102,7 +102,21 @@ function Read-DbConfig {
 # Creates every table this dashboard needs if it isn't there yet - safe to
 # run on every start. __SCHEMA__ is swapped for the validated DB_SCHEMA (a
 # single-quoted here-string so PowerShell leaves the $$ function body alone).
+#
+# The whole block below runs as PostgreSQL's implicit single-transaction
+# multi-statement batch (it's sent with no bound parameters, so Npgsql issues
+# it as one simple-query message). pg_advisory_xact_lock as the first
+# statement serializes that transaction against any other process doing the
+# same thing at the same moment - e.g. the web server and the tracking
+# poller both starting at once in the same container - so only one of them
+# actually runs the CREATE TABLE/INDEX/TRIGGER statements at a time. Without
+# it, two concurrent sessions each running this whole block can deadlock
+# (Postgres error 40P01) from acquiring DDL locks on the same tables in a
+# different order. The lock releases automatically when the transaction
+# ends, whichever session holds it.
 $script:DbSchemaSql = @'
+SELECT pg_advisory_xact_lock(727001727001);
+
 CREATE SCHEMA IF NOT EXISTS "__SCHEMA__";
 
 CREATE TABLE IF NOT EXISTS "__SCHEMA__".users (
