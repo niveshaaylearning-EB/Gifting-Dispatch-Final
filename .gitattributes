@@ -1,0 +1,4 @@
+# Shell scripts run inside Linux containers - always store/checkout with LF,
+# regardless of core.autocrlf on a Windows dev machine, so a shebang line
+# never breaks on a stray \r.
+*.sh text eol=lf

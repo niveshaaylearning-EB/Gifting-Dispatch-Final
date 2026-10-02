@@ -1,7 +1,8 @@
 # Gift Dispatch QC - container image.
-# Runs both long-running processes this app has (server.ps1 and
-# tracking-poller.ps1); which one a container runs is picked by the command
-# docker-compose.yml passes, not by this file.
+# Runs both long-running processes this app has - the web server and the
+# courier-tracking poller - in a single container via docker-entrypoint.sh,
+# so one `docker run` on a VM handles everything with no separate
+# "background worker" deployment needed.
 FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04
 
 # curl: used only by the HEALTHCHECK below.
@@ -20,9 +21,13 @@ COPY . .
 # every container built from this image already has it cached in ./lib.
 RUN pwsh -NoProfile -Command ". ./db.ps1; Import-NpgsqlDriver"
 
+# docker-entrypoint.sh is authored on Windows, so strip any CRLF line endings
+# before making it executable - a stray \r in a shebang line breaks it on Linux.
+RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
+
 EXPOSE 8765
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://localhost:8765/login -o /dev/null || exit 1
 
-CMD ["pwsh", "-NoProfile", "-File", "/app/server.ps1"]
+CMD ["/app/docker-entrypoint.sh"]

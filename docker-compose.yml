@@ -1,5 +1,6 @@
-# Full stack for the Gift Dispatch QC dashboard: PostgreSQL, the web server,
-# and the courier-tracking poller (see README.md for the two-process design).
+# Full stack for the Gift Dispatch QC dashboard: PostgreSQL, plus the app
+# container (which runs both the web server and the courier-tracking poller
+# together - see docker-entrypoint.sh).
 #
 # Usage:
 #   1. Copy .env.example to .env and set DB_USER / DB_PASS / DB_DATABASE
@@ -50,22 +51,6 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:
       - "8765:8765"
-
-  poller:
-    build: .
-    command: ["pwsh", "-NoProfile", "-File", "/app/tracking-poller.ps1"]
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: ${DB_DATABASE:?Set DB_DATABASE in .env}
-      DB_USER: ${DB_USER:?Set DB_USER in .env}
-      DB_PASS: ${DB_PASS:?Set DB_PASS in .env}
-      DB_SCHEMA: ${DB_SCHEMA:-gifting}
-      DB_SSLMODE: Disable
 
 volumes:
   pgdata:

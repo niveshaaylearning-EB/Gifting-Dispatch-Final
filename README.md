@@ -26,7 +26,8 @@ AWBs. All data is stored in PostgreSQL.
    recover a locked-out account - set `ADMIN_USERNAME` and `ADMIN_PASSWORD`
    as environment variables and restart; see `.env.example`.
 4. Start the courier tracking poller as a second, always-running process:
-   `pwsh ./tracking-poller.ps1`.
+   `pwsh ./tracking-poller.ps1`. (Not needed under Docker - the container
+   image runs both automatically; see "Docker deployment".)
 
 Moving from the old file-based version? Run `pwsh ./migrate-json-to-postgres.ps1`
 once in the folder that holds the old `data.json`, `users.json` and
@@ -42,13 +43,16 @@ once in the folder that holds the old `data.json`, `users.json` and
 | `migrate-json-to-postgres.ps1` | One-time import of the old JSON data files |
 | `public/` | Dashboard and login pages, plus self-hosted scripts in `public/vendor/` |
 | `Dockerfile` | Container image (pwsh + the pre-downloaded Npgsql driver) |
-| `docker-compose.yml` | Full stack: PostgreSQL, the web server, and the tracking poller |
+| `docker-entrypoint.sh` | Starts the tracking poller in the background, then the web server in the foreground - one container, both processes |
+| `docker-compose.yml` | Full stack: PostgreSQL plus the app container |
 
 ## Docker deployment
 
-Needs Docker and Docker Compose (`docker compose version`). This runs the
-whole stack - PostgreSQL, the dashboard, and the tracking poller - as three
-containers.
+Needs Docker and Docker Compose (`docker compose version`). A single `app`
+container runs the web server and the courier-tracking poller together (see
+`docker-entrypoint.sh`) - no separate background-worker deployment needed,
+on Render or anywhere else. This stack adds PostgreSQL alongside it as a
+second container.
 
 1. Copy `.env.example` to `.env` and set `DB_USER`, `DB_PASS` and
    `DB_DATABASE` (these also become the PostgreSQL container's own
@@ -58,7 +62,8 @@ containers.
    ```
    docker compose up -d --build
    ```
-3. Watch the console for the one-time `admin` password:
+3. Watch the console for the one-time `admin` password, and the poller's
+   startup line, in the same log stream:
    ```
    docker compose logs -f app
    ```
@@ -68,6 +73,12 @@ containers.
 Data lives in the `pgdata` Docker volume, so it survives
 `docker compose down` (use `docker compose down -v` to also wipe the
 database). To rebuild after pulling code changes: `docker compose up -d --build`.
+
+Running the image directly (no compose - e.g. a VM with its own PostgreSQL)
+works the same way: `docker run` the image built from this `Dockerfile`, with
+`DB_HOST`/`DB_PORT`/`DB_DATABASE`/`DB_USER`/`DB_PASS`/`DB_SCHEMA` pointed at
+that database and port 8765 published - both processes start automatically,
+no extra command needed.
 
 In production, put this behind a reverse proxy that terminates HTTPS, then
 set `TRUST_PROXY=true` and `COOKIE_SECURE=true` in `.env` before starting the
