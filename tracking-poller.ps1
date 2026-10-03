@@ -20,7 +20,10 @@ AWB still only gets actually re-checked roughly every 2 hours based on ITS
 OWN last-checked time, never faster than that once it's already been
 checked at least once. Within each cycle, AWBs that have never been checked
 at all are processed before ones merely due for their next recheck, so a
-brand-new import never waits behind the regular rotation.
+brand-new import never waits behind the regular rotation. Among the rest, one
+whose status text itself carries a days-old date (e.g. a stale "Out for
+Delivery on 1st Oct 2026") is checked before routine rechecks, most stale
+first - see Get-StatusStaleDays.
 
 Meant to run continuously via the "Niveshaay TDV Dashboard Tracking Poller"
 Startup entry, not by hand.
@@ -62,6 +65,39 @@ function Test-NeedsCheck($rec) {
   return -not $rec.centerCheckAttempted
 }
 
+# The courier's own status text sometimes carries a date, e.g. "Out for
+# Delivery on 1st Oct 2026" or "Out for Delivery on 2nd October" (year
+# omitted - assumed to be the current year, or last year if that would
+# otherwise land in the future). Returns how many whole days old that date
+# is as of right now, or $null if the status has no such date. A shipment
+# still sitting on a days-old "out for delivery" (or similar) date despite
+# being checked since is a stuck shipment - see its use below, where this
+# bumps it ahead of routine rechecks instead of waiting its turn by
+# lastCheckedAt alone.
+function Get-StatusStaleDays($statusName) {
+  if (-not $statusName) { return $null }
+  $m = [regex]::Match($statusName, '(?i)\bon\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(\d{4}))?\b')
+  if (-not $m.Success) { return $null }
+  $day = [int]$m.Groups[1].Value
+  $month = $m.Groups[2].Value
+  $year = if ($m.Groups[3].Success) { [int]$m.Groups[3].Value } else { (Get-Date).Year }
+  $parsed = $null
+  foreach ($fmt in @("d MMMM yyyy", "d MMM yyyy")) {
+    try {
+      $parsed = [DateTime]::ParseExact("$day $month $year", $fmt, [System.Globalization.CultureInfo]::InvariantCulture)
+      break
+    } catch { }
+  }
+  if (-not $parsed) { return $null }
+  # No year in the text and parsing with the current year lands in the
+  # future (e.g. checking in January about a "28 December" status) - it
+  # must have meant last year instead.
+  if (-not $m.Groups[3].Success -and $parsed -gt (Get-Date)) { $parsed = $parsed.AddYears(-1) }
+  $days = [math]::Floor(((Get-Date).Date - $parsed.Date).TotalDays)
+  if ($days -lt 0) { return $null }
+  return [int]$days
+}
+
 function Format-CenterContact($ownerName, $managerName) {
   $names = @()
   if ($ownerName) { $names += $ownerName.Trim() }
@@ -100,24 +136,33 @@ while ($true) {
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $cutoff = $now - ($CheckIntervalHours * 60 * 60 * 1000)
 
-    # Never-checked AWBs sort first (lastCheckedAt treated as 0, oldest
-    # possible), then everything else oldest-checked-first - so within a
-    # batch, a brand-new import always wins over a routine recheck, and
-    # among routine rechecks the most overdue one goes first. A delivered
-    # AWB still missing its center/POC details counts as due immediately
-    # (no need to wait out the 2-hour window - it's a one-time gap-fill,
-    # not a status recheck), and sorts alongside the never-checked ones.
+    # Three priority tiers, checked in this order (never past the 2-hour
+    # cutoff - this only reorders AWBs that are already due):
+    #   0. Never-checked, or a delivered AWB still missing its center/POC
+    #      gap-fill - as before, these are always due immediately.
+    #   1. Due for a recheck AND the courier's own status text still carries
+    #      a days-old date (e.g. a stale "Out for Delivery on 1st Oct 2026")
+    #      despite us having already checked it since - a shipment stuck
+    #      like that is worth seeing again before routine rechecks, most
+    #      stale first.
+    #   2. Everything else due for a routine recheck, oldest-checked-first.
     $due = @()
     foreach ($awb in $tracking.Keys) {
       $rec = $tracking[$awb]
       if (-not (Test-NeedsCheck $rec)) { continue }
       $last = $rec.lastCheckedAt
       $isDelivered = Test-Delivered $rec.statusName
-      if ($isDelivered -or -not $last -or [long]$last -le $cutoff) {
-        $due += [PSCustomObject]@{ Awb = $awb; SortKey = $(if ($isDelivered -or -not $last) { 0 } else { [long]$last }) }
+      if (-not ($isDelivered -or -not $last -or [long]$last -le $cutoff)) { continue }
+      if ($isDelivered -or -not $last) {
+        $tier = 0; $secondary = 0
+      } else {
+        $staleDays = Get-StatusStaleDays $rec.statusName
+        if ($staleDays -and $staleDays -ge 1) { $tier = 1; $secondary = -$staleDays }
+        else { $tier = 2; $secondary = [long]$last }
       }
+      $due += [PSCustomObject]@{ Awb = $awb; Tier = $tier; Secondary = $secondary }
     }
-    $due = @($due | Sort-Object SortKey)
+    $due = @($due | Sort-Object Tier, Secondary)
 
     $batch = @($due | Select-Object -First $BatchSizePerCycle -ExpandProperty Awb)
     if ($due.Count -gt 0) { Write-Host "$(Get-Date -Format 'u')  Checking $($batch.Count) of $($due.Count) due AWB(s)..." }
