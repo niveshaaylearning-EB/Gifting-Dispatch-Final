@@ -1116,7 +1116,7 @@ while ($listener.IsListening) {
       foreach ($row in @($body.rows)) {
         $awb = ("" + $row.awb).Trim()
         if (-not $awb) { continue }
-        $rows += @{ awb = $awb; name = ("" + $row.name).Trim(); state = ("" + $row.state).Trim() }
+        $rows += @{ awb = $awb; name = ("" + $row.name).Trim(); phone = ("" + $row.phone).Trim(); state = ("" + $row.state).Trim() }
       }
       $result = Import-DbTrackingRows $rows
       Send-Json $response @{ ok = $true; added = $result.added; updated = $result.updated }

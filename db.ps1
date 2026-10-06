@@ -188,6 +188,7 @@ CREATE OR REPLACE TRIGGER clients_version_bump
 CREATE TABLE IF NOT EXISTS "__SCHEMA__".tracking (
   awb                     text        PRIMARY KEY,
   name                    text        DEFAULT '',
+  phone                   text        DEFAULT '',
   state                   text        DEFAULT '',
   status_name             text        DEFAULT '',
   reason_name             text        DEFAULT '',
@@ -203,6 +204,7 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".tracking (
   created_at              timestamptz NOT NULL DEFAULT now(),
   updated_at              timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS phone text DEFAULT '';
 '@
 
 function Initialize-Db {
@@ -504,7 +506,7 @@ function Remove-DbClientCategory($category) {
 # Courier tracking (AWBs). Column aliases keep the same camelCase field names
 # the dashboard's Live Tracking Status tab already reads.
 # ---------------------------------------------------------------------------
-$script:TrackingColumns = 'awb, name, state, status_name AS "statusName", reason_name AS "reasonName", from_center AS "fromCenter", to_center AS "toCenter", ' +
+$script:TrackingColumns = 'awb, name, phone, state, status_name AS "statusName", reason_name AS "reasonName", from_center AS "fromCenter", to_center AS "toCenter", ' +
   'last_center_name AS "lastCenterName", last_center_contact AS "lastCenterContact", last_center_mobile AS "lastCenterMobile", ' +
   'delivered, last_checked_at AS "lastCheckedAt", last_error AS "lastError", center_check_attempted AS "centerCheckAttempted"'
 
@@ -527,13 +529,13 @@ function Import-DbTrackingRows($rows) {
   $repeats = 0
   foreach ($r in $rows) {
     if ($byAwb.Contains($r.awb)) { $repeats++ }
-    $byAwb[$r.awb] = @{ awb = $r.awb; name = $r.name; state = $r.state }
+    $byAwb[$r.awb] = @{ awb = $r.awb; name = $r.name; phone = $r.phone; state = $r.state }
   }
   if ($byAwb.Count -eq 0) { return @{ added = 0; updated = 0 } }
   $result = Invoke-DbQuery @"
-INSERT INTO tracking (awb, name, state)
-SELECT r.awb, r.name, r.state FROM jsonb_to_recordset(@rows::jsonb) AS r(awb text, name text, state text)
-ON CONFLICT (awb) DO UPDATE SET name = EXCLUDED.name, state = EXCLUDED.state, updated_at = now()
+INSERT INTO tracking (awb, name, phone, state)
+SELECT r.awb, r.name, r.phone, r.state FROM jsonb_to_recordset(@rows::jsonb) AS r(awb text, name text, phone text, state text)
+ON CONFLICT (awb) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, state = EXCLUDED.state, updated_at = now()
 RETURNING (xmax = 0) AS inserted
 "@ @{ rows = (ConvertTo-Json -InputObject @($byAwb.Values) -Depth 4 -Compress) }
   $added = @($result | Where-Object { $_.inserted }).Count

@@ -117,6 +117,12 @@ button.small{padding:5px 10px; font-size:12px; min-height:30px;}
 .stat-card.c-bad .n{color:var(--bad);}
 .stat-card.c-accent .n{color:var(--accent);}
 
+.import-review{margin:12px 0; padding:12px; border:1px solid var(--warn); border-radius:10px; background:var(--warn-soft);}
+.import-review-row{background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:8px;}
+.import-review-check{display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:13px;}
+.import-review-check input{margin-top:3px;}
+.import-review-existing{margin:6px 0 0 24px; font-size:12px; color:var(--text-muted);}
+
 .upload-zone{display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
 .hint{font-size:12px; color:var(--text-muted); margin-top:8px;}
 .progress{height:8px; border-radius:5px; background:var(--surface-2); overflow:hidden; margin-top:10px;}
@@ -468,16 +474,17 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-tracking" data-tabpanel="tracking" hidden>
     <div class="card">
       <h2>Live Tracking Status</h2>
-      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 2 hours until a shipment is delivered &mdash; once delivered, it's never checked again. Import an Excel file with three columns: Tracking ID / AWB No, Name, and State/Location.</div>
+      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 2 hours until a shipment is delivered &mdash; once delivered, it's never checked again. Import an Excel file with Tracking ID / AWB No, Name, State/Location, and (if present) a Phone/Mobile column &mdash; any other columns (shipping address, pincode, courier, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
       <div class="row">
         <input type="file" id="trackingFileInput" accept=".xlsx,.xls" hidden>
         <button class="primary small" id="trackingImportBtn">Import Excel file</button>
         <button class="ghost small" id="trackingRefreshBtn">Refresh now</button>
         <span class="hint" id="trackingImportHint" style="margin-top:0;"></span>
       </div>
+      <div id="trackingImportReview" class="import-review" hidden></div>
       <div class="stat-cards" id="trackingStatCards"></div>
       <div class="row" style="margin-top:10px;">
-        <input type="search" id="trackingSearchBox" placeholder="Search AWB, name, state&hellip;" style="flex:1 1 220px;">
+        <input type="search" id="trackingSearchBox" placeholder="Search AWB, name, phone, state&hellip;" style="flex:1 1 220px;">
         <select id="trackingStatusFilter">
           <option value="">All statuses</option>
           <option value="pending">Not yet checked</option>
@@ -494,6 +501,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
           <tr>
             <th data-sort-key="awb">AWB / Tracking ID<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="awb" title="Filter">&#9662;</button></th>
             <th data-sort-key="name">Name<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="name" title="Filter">&#9662;</button></th>
+            <th data-sort-key="phone">Phone<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="phone" title="Filter">&#9662;</button></th>
             <th data-sort-key="state">State<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="state" title="Filter">&#9662;</button></th>
             <th data-sort-key="status">Status<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="status" title="Filter">&#9662;</button></th>
             <th data-sort-key="lastCenter">Last Center &amp; POC<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="lastCenter" title="Filter">&#9662;</button></th>
@@ -2027,6 +2035,7 @@ function trackingStatusPillClass(r){
 var TRACKING_COL_VALUE_ACCESSORS = {
   awb: function(r){ return r.awb || "(none)"; },
   name: function(r){ return r.name || "(no name)"; },
+  phone: function(r){ return r.phone || "(none)"; },
   state: function(r){ return r.state || "(none)"; },
   status: function(r){ return trackingStatusLabel(r); },
   lastCenter: function(r){ return r.lastCenterName || "(none)"; }
@@ -2034,6 +2043,7 @@ var TRACKING_COL_VALUE_ACCESSORS = {
 var TRACKING_SORT_ACCESSORS = {
   awb: function(r){ return r.awb || ""; },
   name: function(r){ return (r.name || "").toLowerCase(); },
+  phone: function(r){ return (r.phone || "").toLowerCase(); },
   state: function(r){ return (r.state || "").toLowerCase(); },
   status: function(r){ return trackingStatusLabel(r).toLowerCase(); },
   lastCenter: function(r){ return (r.lastCenterName || "").toLowerCase(); },
@@ -2121,7 +2131,7 @@ function renderTrackingTab(){
     if(statusFilter && trackingStatusGroup(r) !== statusFilter){ return false; }
     if(!matchesColFilters(r, trackingColFilters, TRACKING_COL_VALUE_ACCESSORS)){ return false; }
     if(!q){ return true; }
-    return [r.awb, r.name, r.state].some(function(v){ return (v || "").toLowerCase().indexOf(q) !== -1; });
+    return [r.awb, r.name, r.phone, r.state].some(function(v){ return (v || "").toLowerCase().indexOf(q) !== -1; });
   });
   var sortAcc = TRACKING_SORT_ACCESSORS[trackingSortState.key] || TRACKING_SORT_ACCESSORS.name;
   rows.sort(function(a,b){
@@ -2145,6 +2155,7 @@ function renderTrackingTab(){
     var tr = document.createElement("tr");
     var tdAwb = document.createElement("td"); tdAwb.className = "mono"; tdAwb.textContent = r.awb || "—";
     var tdName = document.createElement("td"); tdName.textContent = r.name || "—";
+    var tdPhone = document.createElement("td"); tdPhone.className = "mono"; tdPhone.textContent = r.phone || "—";
     var tdState = document.createElement("td"); tdState.textContent = r.state || "—";
     var tdStatus = document.createElement("td");
     var pill = document.createElement("span"); pill.className = trackingStatusPillClass(r); pill.textContent = trackingStatusLabel(r);
@@ -2163,7 +2174,7 @@ function renderTrackingTab(){
       tdCenter.textContent = "—";
     }
     var tdWhen = document.createElement("td"); tdWhen.textContent = r.lastCheckedAt ? new Date(r.lastCheckedAt).toLocaleString() : "—";
-    [tdAwb, tdName, tdState, tdStatus, tdCenter, tdWhen].forEach(function(td){ tr.appendChild(td); });
+    [tdAwb, tdName, tdPhone, tdState, tdStatus, tdCenter, tdWhen].forEach(function(td){ tr.appendChild(td); });
     tbody.appendChild(tr);
   });
 }
@@ -2171,10 +2182,87 @@ function renderTrackingTab(){
 $("trackingSearchBox").addEventListener("input", renderTrackingTab);
 $("trackingStatusFilter").addEventListener("change", renderTrackingTab);
 
+function trackingNameKey(s){ return normSpace(s).toLowerCase(); }
+
+// Actually sends rows to the server. Used both for a file with no name
+// clashes (straight through) and for whatever the review panel below ends
+// up confirming.
+function importTrackingRows(rows){
+  if(!rows.length){ toast("Nothing selected to import."); return Promise.resolve(); }
+  $("trackingImportHint").textContent = "Importing " + rows.length + " row(s)…";
+  return api("/api/tracking/import", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({rows: rows})})
+    .then(function(res){
+      $("trackingImportHint").textContent = "";
+      toast("Imported: " + res.added + " new, " + res.updated + " updated.");
+      loadTracking();
+    })
+    .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Import failed: " + err.message); throw err; });
+}
+
+// A row whose name matches an existing tracking entry under a DIFFERENT AWB
+// is held here for a manual yes/no instead of being imported straight away -
+// same AWB is just an update to that same shipment, not a possible repeat.
+// The full Live Tracking Status table stays visible right below this panel
+// (nothing here hides it), so the existing data can be checked at the same
+// time as deciding on each flagged row.
+function openTrackingImportReview(fresh, flagged){
+  var host = $("trackingImportReview");
+  host.innerHTML = "";
+  host.hidden = false;
+
+  var head = document.createElement("div"); head.className = "hint"; head.style.marginTop = "0";
+  head.textContent = flagged.length + " row(s) share a name with someone already being tracked (under a different AWB). Tick any that should still be imported as a separate entry" +
+    (fresh.length ? (", then Import - the other " + fresh.length + " row(s) with no name clash will be imported either way.") : ".");
+  host.appendChild(head);
+
+  var checks = [];
+  flagged.forEach(function(f){
+    var card = document.createElement("div"); card.className = "import-review-row";
+    var label = document.createElement("label"); label.className = "import-review-check";
+    var cb = document.createElement("input"); cb.type = "checkbox";
+    label.appendChild(cb);
+    var newInfo = document.createElement("span");
+    var strong = document.createElement("strong"); strong.textContent = "New: ";
+    newInfo.appendChild(strong);
+    newInfo.appendChild(document.createTextNode(
+      [f.row.name || "(no name)", f.row.phone || "(no phone)", "AWB " + f.row.awb, f.row.state || "(no state)"].join(" · ")
+    ));
+    label.appendChild(newInfo);
+    card.appendChild(label);
+
+    var existingList = document.createElement("div"); existingList.className = "import-review-existing";
+    f.matches.forEach(function(m){
+      var line = document.createElement("div");
+      line.textContent = "Already tracked as: " + [m.name || "(no name)", m.phone || "(no phone)", "AWB " + m.awb, m.state || "(no state)", trackingStatusLabel(m)].join(" · ");
+      existingList.appendChild(line);
+    });
+    card.appendChild(existingList);
+
+    host.appendChild(card);
+    checks.push({cb: cb, row: f.row});
+  });
+
+  var actions = document.createElement("div"); actions.className = "row"; actions.style.marginTop = "10px";
+  var importBtn = document.createElement("button"); importBtn.className = "primary small"; importBtn.textContent = "Import";
+  importBtn.addEventListener("click", function(){
+    var confirmed = checks.filter(function(c){ return c.cb.checked; }).map(function(c){ return c.row; });
+    var toImport = fresh.concat(confirmed);
+    importBtn.disabled = true;
+    importTrackingRows(toImport)
+      .then(function(){ host.hidden = true; host.innerHTML = ""; })
+      .catch(function(){ importBtn.disabled = false; });
+  });
+  var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost small"; cancelBtn.textContent = "Cancel import";
+  cancelBtn.addEventListener("click", function(){ host.hidden = true; host.innerHTML = ""; });
+  actions.appendChild(importBtn); actions.appendChild(cancelBtn);
+  host.appendChild(actions);
+}
+
 $("trackingImportBtn").addEventListener("click", function(){ $("trackingFileInput").click(); });
 $("trackingFileInput").addEventListener("change", function(e){
   var file = e.target.files && e.target.files[0];
   if(!file) return;
+  $("trackingImportReview").hidden = true; $("trackingImportReview").innerHTML = "";
   var reader = new FileReader();
   reader.onload = function(ev){
     try{
@@ -2184,29 +2272,56 @@ $("trackingFileInput").addEventListener("change", function(e){
       rawRows = rawRows.filter(function(r){ return r.some(function(cell){ return normSpace(cell) !== ""; }); });
       if(rawRows.length < 2){ toast("No data rows found in that file."); return; }
       var headers = rawRows[0].map(function(h){ return normSpace(h).toLowerCase(); });
+      // Prefer an exact header match over a substring one, so a plain
+      // "State" column wins over something like "Shipping Address State" -
+      // courier export sheets often carry several columns (shipping city/
+      // state/pincode, courier, dimensions, weight, charge) that aren't
+      // relevant here; they're simply never matched by any keyword below.
       function findCol(kws){
+        for(var i=0;i<headers.length;i++){ if(kws.indexOf(headers[i]) !== -1){ return i; } }
         for(var i=0;i<headers.length;i++){ if(kws.some(function(k){ return headers[i].indexOf(k) !== -1; })){ return i; } }
         return -1;
       }
       var awbCol = findCol(["tracking id","awb","docket"]);
       var nameCol = findCol(["name"]);
       var stateCol = findCol(["state","location"]);
+      var phoneCol = findCol(["phone","mobile","contact"]);
       if(awbCol === -1 || nameCol === -1 || stateCol === -1){
         toast("Couldn't find Tracking ID / Name / State columns in that file's header row.");
         return;
       }
       var rows = rawRows.slice(1).map(function(r){
-        return { awb: normSpace(r[awbCol]), name: normSpace(r[nameCol]), state: normSpace(r[stateCol]) };
+        return {
+          awb: normSpace(r[awbCol]), name: normSpace(r[nameCol]), state: normSpace(r[stateCol]),
+          phone: phoneCol === -1 ? "" : normSpace(r[phoneCol])
+        };
       }).filter(function(r){ return r.awb; });
       if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }
-      $("trackingImportHint").textContent = "Importing " + rows.length + " row(s)…";
-      api("/api/tracking/import", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({rows: rows})})
-        .then(function(res){
-          $("trackingImportHint").textContent = "";
-          toast("Imported: " + res.added + " new, " + res.updated + " updated.");
-          loadTracking();
-        })
-        .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Import failed: " + err.message); });
+
+      var existingByName = {};
+      state.tracking.forEach(function(t){
+        var key = trackingNameKey(t.name);
+        if(!key) return;
+        (existingByName[key] = existingByName[key] || []).push(t);
+      });
+      var fresh = [], flagged = [];
+      rows.forEach(function(r){
+        var key = trackingNameKey(r.name);
+        var matches = key ? (existingByName[key] || []).filter(function(t){ return t.awb !== r.awb; }) : [];
+        if(matches.length){ flagged.push({row: r, matches: matches}); }
+        else{ fresh.push(r); }
+      });
+
+      if(!flagged.length){
+        importTrackingRows(rows);
+      } else {
+        if(fresh.length){
+          // Rows with no name clash import right away - only the flagged
+          // ones wait on a decision.
+          importTrackingRows(fresh);
+        }
+        openTrackingImportReview([], flagged);
+      }
     }catch(err){
       toast("Couldn't read that file: " + err.message);
     }
