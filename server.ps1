@@ -1122,14 +1122,23 @@ while ($listener.IsListening) {
       Send-Json $response @{ ok = $true; added = $result.added; updated = $result.updated }
     }
     elseif ($method -eq "POST" -and $path -eq "/api/tracking/refresh") {
-      # On-demand check, for a "Refresh now" button - the background poller
-      # (tracking-poller.ps1) already does this automatically every 2 hours
-      # per AWB and skips anything already delivered; this just doesn't make
-      # someone wait for the next cycle. Capped so a big list can't turn one
-      # click into dozens of outbound calls at once.
+      # On-demand check - the background poller (tracking-poller.ps1) already
+      # does this automatically and skips anything already delivered; this
+      # just doesn't make someone wait for the next cycle.
+      #
+      # Two different caps, deliberately not the same: when the caller hands
+      # over a specific list of AWBs (e.g. right after importing a batch),
+      # that list's size is already known and chosen by the caller, so it's
+      # only capped at 1000 as a sanity backstop, not a real limit - the
+      # request blocks this single-threaded server until it's done (no
+      # per-call delay here, unlike the poller), so a big list does take
+      # noticeably longer, by design, in exchange for seeing it all at once.
+      # With no list given (nothing specific requested), it falls back to
+      # "whatever's due" across the whole table, which is NOT caller-bounded,
+      # so that path keeps the original 25-item cap.
       $body = Read-Body $request
       $targets = if ($body -and $body.awb) {
-        @(@($body.awb) | Select-Object -First 25 | ForEach-Object { Get-DbTrackingRecord ([string]$_) } | Where-Object { $_ })
+        @(@($body.awb) | Select-Object -First 1000 | ForEach-Object { Get-DbTrackingRecord ([string]$_) } | Where-Object { $_ })
       } else {
         @(Get-DbTrackingRecords | Where-Object { Test-NeedsCheck $_ } | Select-Object -First 25)
       }

@@ -6,8 +6,8 @@ table as the server (see db.ps1 / .env). Needs PowerShell 7+:
   pwsh .\tracking-poller.ps1
 
 For every AWB in the tracking table that isn't yet marked delivered, and hasn't
-been checked in the last 2 hours (or has never been checked), it calls Shree
-Anjani's own public tracking API - the same one shreeanjani.co.in/tracking
+been checked in the last 30 minutes (or has never been checked), it calls
+Shree Anjani's own public tracking API - the same one shreeanjani.co.in/tracking
 itself calls - and records the latest status. Once an AWB's status name
 contains "DELIVER", it is never checked again - that's the explicit,
 permanent stopping point.
@@ -16,8 +16,8 @@ Checked in batches with a short pause between each call so a large list
 doesn't fire dozens of requests at once; the loop interval below means a
 shipment that's still pending/in-progress gets picked up again within
 about 30 seconds of becoming due, not several minutes late - while any one
-AWB still only gets actually re-checked roughly every 2 hours based on ITS
-OWN last-checked time, never faster than that once it's already been
+AWB still only gets actually re-checked roughly every 30 minutes based on
+ITS OWN last-checked time, never faster than that once it's already been
 checked at least once. Within each cycle, AWBs that have never been checked
 at all are processed before ones merely due for their next recheck, so a
 brand-new import never waits behind the regular rotation. Among the rest, one
@@ -38,7 +38,9 @@ try {
   exit 1
 }
 
-$CheckIntervalHours = 2
+# Lowered from 2 hours - each AWB now gets re-checked roughly every 30
+# minutes instead.
+$CheckIntervalHours = 0.5
 # Raised from 40/60s/800ms: the fixed sleep between cycles was the real
 # bottleneck whenever there's a backlog (e.g. right after importing a few
 # hundred new AWBs) - it's paid once per cycle no matter the batch size, so

@@ -2184,22 +2184,23 @@ $("trackingStatusFilter").addEventListener("change", renderTrackingTab);
 
 function trackingNameKey(s){ return normSpace(s).toLowerCase(); }
 
-// The server handles one HTTP request at a time, so a long chain of
-// /api/tracking/refresh calls right after a big import would freeze the
-// whole dashboard for everyone for however long that takes - the same
-// reason /api/tracking/refresh itself is already capped at 25 AWBs per call
-// (see server.ps1). So this fires exactly ONE such call, for (at most) the
-// first 25 AWBs just imported, as an immediate head start. Anything beyond
-// that - and the rest of a big batch - is left to the background poller
-// (tracking-poller.ps1), which now runs its cycles every 30s in bigger
-// batches specifically so a freshly-imported batch clears much faster than
-// before, without ever blocking the dashboard itself.
+// Checks every AWB just imported, in one go, right now - not capped to a
+// handful. The server processes this list synchronously (see server.ps1,
+// /api/tracking/refresh), so a large import does take noticeably longer to
+// finish here - that's accepted on purpose in exchange for seeing the whole
+// batch's real status at once instead of only a first slice of it. The
+// background poller (tracking-poller.ps1) keeps running independently the
+// whole time and takes over the routine every-30-minutes recheck afterward.
 function checkAwbsNow(awbList){
   if(!awbList.length){ return Promise.resolve(); }
-  $("trackingImportHint").textContent = "Checking live status for the first " + Math.min(25, awbList.length) + " row(s)…";
-  return api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({awb: awbList.slice(0, 25)})})
-    .then(function(){ $("trackingImportHint").textContent = ""; loadTracking(); })
-    .catch(function(){ $("trackingImportHint").textContent = ""; });
+  $("trackingImportHint").textContent = "Checking live status for all " + awbList.length + " row(s) just imported - this can take a little while for a large batch…";
+  return api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({awb: awbList})})
+    .then(function(res){
+      $("trackingImportHint").textContent = "";
+      toast("Checked " + ((res && res.checked) || awbList.length) + " newly imported AWB(s).");
+      loadTracking();
+    })
+    .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Couldn't check the new AWBs yet: " + err.message); });
 }
 
 // Actually sends rows to the server. Used both for a file with no name
