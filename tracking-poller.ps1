@@ -12,10 +12,10 @@ itself calls - and records the latest status. Once an AWB's status name
 contains "DELIVER", it is never checked again - that's the explicit,
 permanent stopping point.
 
-Checked in small batches with a short pause between each call so a large
-list doesn't fire dozens of requests at once; the loop interval below means
-a shipment that's still pending/in-progress gets picked up again within
-about a minute of becoming due, not several minutes late - while any one
+Checked in batches with a short pause between each call so a large list
+doesn't fire dozens of requests at once; the loop interval below means a
+shipment that's still pending/in-progress gets picked up again within
+about 30 seconds of becoming due, not several minutes late - while any one
 AWB still only gets actually re-checked roughly every 2 hours based on ITS
 OWN last-checked time, never faster than that once it's already been
 checked at least once. Within each cycle, AWBs that have never been checked
@@ -39,9 +39,14 @@ try {
 }
 
 $CheckIntervalHours = 2
-$BatchSizePerCycle = 40
-$LoopSleepSeconds = 60
-$PerCallDelayMs = 800
+# Raised from 40/60s/800ms: the fixed sleep between cycles was the real
+# bottleneck whenever there's a backlog (e.g. right after importing a few
+# hundred new AWBs) - it's paid once per cycle no matter the batch size, so
+# a bigger batch and shorter sleep both directly cut how long a fresh
+# import sits as "Not yet checked" before it's actually been checked.
+$BatchSizePerCycle = 120
+$LoopSleepSeconds = 30
+$PerCallDelayMs = 500
 
 # Must match only an ACTUAL "DELIVERED" status, not "OUT FOR DELIVERY" -
 # that status contains the substring "DELIVER" too (it's the start of

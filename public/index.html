@@ -2184,6 +2184,24 @@ $("trackingStatusFilter").addEventListener("change", renderTrackingTab);
 
 function trackingNameKey(s){ return normSpace(s).toLowerCase(); }
 
+// The server handles one HTTP request at a time, so a long chain of
+// /api/tracking/refresh calls right after a big import would freeze the
+// whole dashboard for everyone for however long that takes - the same
+// reason /api/tracking/refresh itself is already capped at 25 AWBs per call
+// (see server.ps1). So this fires exactly ONE such call, for (at most) the
+// first 25 AWBs just imported, as an immediate head start. Anything beyond
+// that - and the rest of a big batch - is left to the background poller
+// (tracking-poller.ps1), which now runs its cycles every 30s in bigger
+// batches specifically so a freshly-imported batch clears much faster than
+// before, without ever blocking the dashboard itself.
+function checkAwbsNow(awbList){
+  if(!awbList.length){ return Promise.resolve(); }
+  $("trackingImportHint").textContent = "Checking live status for the first " + Math.min(25, awbList.length) + " row(s)…";
+  return api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({awb: awbList.slice(0, 25)})})
+    .then(function(){ $("trackingImportHint").textContent = ""; loadTracking(); })
+    .catch(function(){ $("trackingImportHint").textContent = ""; });
+}
+
 // Actually sends rows to the server. Used both for a file with no name
 // clashes (straight through) and for whatever the review panel below ends
 // up confirming.
@@ -2192,9 +2210,9 @@ function importTrackingRows(rows){
   $("trackingImportHint").textContent = "Importing " + rows.length + " row(s)…";
   return api("/api/tracking/import", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({rows: rows})})
     .then(function(res){
-      $("trackingImportHint").textContent = "";
-      toast("Imported: " + res.added + " new, " + res.updated + " updated.");
+      toast("Imported: " + res.added + " new, " + res.updated + " updated. Checking live status now…");
       loadTracking();
+      return checkAwbsNow(rows.map(function(r){ return r.awb; }));
     })
     .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Import failed: " + err.message); throw err; });
 }
