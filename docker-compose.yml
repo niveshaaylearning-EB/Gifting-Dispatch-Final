@@ -1,6 +1,6 @@
 # Full stack for the Gift Dispatch QC dashboard: PostgreSQL, plus the app
-# container (which runs both the web server and the courier-tracking poller
-# together - see docker-entrypoint.sh).
+# container (the web server, which starts the courier-tracking poller
+# itself - see server.ps1).
 #
 # Usage:
 #   1. Copy .env.example to .env and set DB_USER / DB_PASS / DB_DATABASE

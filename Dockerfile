@@ -1,8 +1,7 @@
 # Gift Dispatch QC - container image.
-# Runs both long-running processes this app has - the web server and the
-# courier-tracking poller - in a single container via docker-entrypoint.sh,
-# so one `docker run` on a VM handles everything with no separate
-# "background worker" deployment needed.
+# Runs the web server via docker-entrypoint.sh; the server launches and
+# supervises the courier-tracking poller itself, so one `docker run` on a VM
+# handles everything with no separate "background worker" deployment needed.
 FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04
 
 # curl: used only by the HEALTHCHECK below.

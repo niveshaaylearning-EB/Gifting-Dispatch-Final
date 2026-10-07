@@ -25,9 +25,10 @@ AWBs. All data is stored in PostgreSQL.
    a host like Render where you can't see a one-time console message, or to
    recover a locked-out account - set `ADMIN_USERNAME` and `ADMIN_PASSWORD`
    as environment variables and restart; see `.env.example`.
-4. Start the courier tracking poller as a second, always-running process:
-   `pwsh ./tracking-poller.ps1`. (Not needed under Docker - the container
-   image runs both automatically; see "Docker deployment".)
+4. Courier tracking runs automatically: `server.ps1` launches
+   `tracking-poller.ps1` as a child process on startup and restarts it if it
+   ever exits. Don't start the poller separately as well - that would just
+   run two of them.
 
 Moving from the old file-based version? Run `pwsh ./migrate-json-to-postgres.ps1`
 once in the folder that holds the old `data.json`, `users.json` and
@@ -39,19 +40,20 @@ once in the folder that holds the old `data.json`, `users.json` and
 |---|---|
 | `server.ps1` | Web server, API and all screening rules |
 | `db.ps1` | PostgreSQL access (shared by the server, poller and migration) |
-| `tracking-poller.ps1` | Re-checks undelivered AWBs about every 2 hours |
+| `tracking-poller.ps1` | Re-checks undelivered AWBs about every 30 minutes (started by `server.ps1`) |
 | `migrate-json-to-postgres.ps1` | One-time import of the old JSON data files |
 | `public/` | Dashboard and login pages, plus self-hosted scripts in `public/vendor/` |
 | `Dockerfile` | Container image (pwsh + the pre-downloaded Npgsql driver) |
-| `docker-entrypoint.sh` | Starts the tracking poller in the background, then the web server in the foreground - one container, both processes |
+| `docker-entrypoint.sh` | Starts the web server as the container's main process (the server starts the poller itself) |
 | `docker-compose.yml` | Full stack: PostgreSQL plus the app container |
 
 ## Docker deployment
 
 Needs Docker and Docker Compose (`docker compose version`). A single `app`
-container runs the web server and the courier-tracking poller together (see
-`docker-entrypoint.sh`) - no separate background-worker deployment needed,
-on Render or anywhere else. This stack adds PostgreSQL alongside it as a
+container runs the web server, which starts and supervises the
+courier-tracking poller itself - no separate background-worker deployment
+needed, on Render or anywhere else (if you created one earlier, delete it so
+two pollers don't run side by side). This stack adds PostgreSQL alongside it as a
 second container.
 
 1. Copy `.env.example` to `.env` and set `DB_USER`, `DB_PASS` and

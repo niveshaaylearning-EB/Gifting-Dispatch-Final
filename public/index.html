@@ -474,7 +474,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-tracking" data-tabpanel="tracking" hidden>
     <div class="card">
       <h2>Live Tracking Status</h2>
-      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 2 hours until a shipment is delivered &mdash; once delivered, it's never checked again. Import an Excel file with Tracking ID / AWB No, Name, State/Location, and (if present) a Phone/Mobile column &mdash; any other columns (shipping address, pincode, courier, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
+      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Import an Excel file with Tracking ID / AWB No, Name, State/Location, and (if present) a Phone/Mobile column &mdash; any other columns (shipping address, pincode, courier, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
       <div class="row">
         <input type="file" id="trackingFileInput" accept=".xlsx,.xls" hidden>
         <button class="primary small" id="trackingImportBtn">Import Excel file</button>
@@ -2355,7 +2355,7 @@ $("trackingRefreshBtn").addEventListener("click", function(){
   $("trackingRefreshBtn").textContent = "Checking…";
   api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({})})
     .then(function(res){
-      toast("Checked " + res.checked + " AWB(s). (Up to 25 at a time — the rest update automatically within a couple of hours.)");
+      toast("Checked " + res.checked + " AWB(s) - never-checked ones first. Everything keeps re-checking automatically every 30 minutes.");
       loadTracking();
     })
     .catch(function(err){ toast("Refresh failed: " + err.message); })

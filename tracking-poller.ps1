@@ -83,6 +83,16 @@ function Test-NeedsCheck($rec) {
 # lastCheckedAt alone.
 function Get-StatusStaleDays($statusName) {
   if (-not $statusName) { return $null }
+  # Shree Anjani's actual format: "OUT FOR DELIVERY ON 6/10/2026" - day/month/year.
+  $n = [regex]::Match($statusName, '(?i)\bon\s+(\d{1,2})/(\d{1,2})/(\d{4})\b')
+  if ($n.Success) {
+    try {
+      $d = [DateTime]::new([int]$n.Groups[3].Value, [int]$n.Groups[2].Value, [int]$n.Groups[1].Value)
+    } catch { return $null }
+    $nd = [math]::Floor(((Get-Date).Date - $d.Date).TotalDays)
+    if ($nd -lt 0) { return $null }
+    return [int]$nd
+  }
   $m = [regex]::Match($statusName, '(?i)\bon\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(\d{4}))?\b')
   if (-not $m.Success) { return $null }
   $day = [int]$m.Groups[1].Value

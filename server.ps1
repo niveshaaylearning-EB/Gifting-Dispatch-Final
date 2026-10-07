@@ -758,9 +758,34 @@ Write-Host ""
 $openUrl = if ($lanEnabled -and $lanIP) { "http://$($lanIP):$Port/" } else { $localPrefix }
 try { Start-Process $openUrl } catch {}
 
+# The courier-tracking poller runs as a child of this server, so live
+# tracking works wherever the dashboard itself is running - it no longer
+# depends on a separately-deployed background worker that can silently be
+# missing. If it ever exits, it's restarted on the next incoming request
+# (the dashboard polls every few seconds, so that's effectively immediate),
+# at most once a minute so a poller that fails at startup can't spin.
+$pollerScript = Join-Path $root "tracking-poller.ps1"
+$pwshPath = [Environment]::ProcessPath
+$script:pollerProc = $null
+$script:pollerLastStart = [DateTime]::MinValue
+function Ensure-TrackingPoller {
+  if ($script:pollerProc -and -not $script:pollerProc.HasExited) { return }
+  if (((Get-Date) - $script:pollerLastStart).TotalSeconds -lt 60) { return }
+  $script:pollerLastStart = Get-Date
+  try {
+    $script:pollerProc = Start-Process -FilePath $pwshPath -ArgumentList @("-NoProfile", "-File", "`"$pollerScript`"") -NoNewWindow -PassThru
+    Write-Host "  Courier tracking poller started (pid $($script:pollerProc.Id))." -ForegroundColor DarkGray
+  } catch {
+    Write-Host "  Could not start the courier tracking poller: $($_.Exception.Message)" -ForegroundColor Red
+  }
+}
+Ensure-TrackingPoller
+
+try {
 while ($listener.IsListening) {
   $context = $null
   try { $context = $listener.GetContext() } catch { break }
+  Ensure-TrackingPoller
   $request = $context.Request
   $response = $context.Response
   try {
@@ -1133,14 +1158,18 @@ while ($listener.IsListening) {
       # request blocks this single-threaded server until it's done (no
       # per-call delay here, unlike the poller), so a big list does take
       # noticeably longer, by design, in exchange for seeing it all at once.
-      # With no list given (nothing specific requested), it falls back to
-      # "whatever's due" across the whole table, which is NOT caller-bounded,
-      # so that path keeps the original 25-item cap.
+      # With no list given (the "Refresh now" button), it checks every AWB
+      # that still needs a check - never-checked ones FIRST, then the
+      # longest-unchecked - up to 500. (It used to take the first 25 rows in
+      # table order, which meant the same old rows got re-checked on every
+      # click while newly imported ones were never reached.)
       $body = Read-Body $request
       $targets = if ($body -and $body.awb) {
         @(@($body.awb) | Select-Object -First 1000 | ForEach-Object { Get-DbTrackingRecord ([string]$_) } | Where-Object { $_ })
       } else {
-        @(Get-DbTrackingRecords | Where-Object { Test-NeedsCheck $_ } | Select-Object -First 25)
+        @(Get-DbTrackingRecords | Where-Object { Test-NeedsCheck $_ } |
+          Sort-Object -Property @{ Expression = { if ($_.lastCheckedAt) { 1 } else { 0 } } }, @{ Expression = { if ($_.lastCheckedAt) { [long]$_.lastCheckedAt } else { 0 } } } |
+          Select-Object -First 500)
       }
       $checked = 0
       foreach ($rec in $targets) {
@@ -1300,6 +1329,12 @@ while ($listener.IsListening) {
       Write-Host "  [$(Get-Date -Format u)] ERROR $($request.HttpMethod) $($request.Url.AbsolutePath): $($ex.Message)" -ForegroundColor Red
       try { Send-Json $response @{ ok = $false; error = "Something went wrong on the server." } 500 } catch {}
     }
+  }
+}
+} finally {
+  # Don't leave an orphaned poller behind when the server stops (Ctrl+C).
+  if ($script:pollerProc -and -not $script:pollerProc.HasExited) {
+    try { $script:pollerProc.Kill() } catch {}
   }
 }
 
