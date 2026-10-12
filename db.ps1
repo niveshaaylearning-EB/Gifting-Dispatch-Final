@@ -205,6 +205,9 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".tracking (
   updated_at              timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS phone text DEFAULT '';
+-- Set by the dashboard's "Refresh now" / post-import check; the poller treats
+-- such a row as due immediately and clears it once checked.
+ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS check_requested_at timestamptz;
 '@
 
 function Initialize-Db {
@@ -508,7 +511,8 @@ function Remove-DbClientCategory($category) {
 # ---------------------------------------------------------------------------
 $script:TrackingColumns = 'awb, name, phone, state, status_name AS "statusName", reason_name AS "reasonName", from_center AS "fromCenter", to_center AS "toCenter", ' +
   'last_center_name AS "lastCenterName", last_center_contact AS "lastCenterContact", last_center_mobile AS "lastCenterMobile", ' +
-  'delivered, last_checked_at AS "lastCheckedAt", last_error AS "lastError", center_check_attempted AS "centerCheckAttempted"'
+  'delivered, last_checked_at AS "lastCheckedAt", last_error AS "lastError", center_check_attempted AS "centerCheckAttempted", ' +
+  '(check_requested_at IS NOT NULL) AS "checkRequested"'
 
 # Writes each AWB record to the pipeline - wrap calls in @() to get an array.
 function Get-DbTrackingRecords {
@@ -549,7 +553,7 @@ UPDATE tracking SET
   status_name = @statusName, reason_name = @reasonName, from_center = @fromCenter, to_center = @toCenter,
   last_center_name = @lastCenterName, last_center_contact = @lastCenterContact, last_center_mobile = @lastCenterMobile,
   delivered = @delivered, last_checked_at = @lastCheckedAt, last_error = @lastError,
-  center_check_attempted = @centerCheckAttempted, updated_at = now()
+  center_check_attempted = @centerCheckAttempted, check_requested_at = NULL, updated_at = now()
 WHERE awb = @awb
 "@ @{
     awb = [string]$rec.awb
@@ -562,4 +566,17 @@ WHERE awb = @awb
     lastError = (ConvertTo-DbText $rec.lastError)
     centerCheckAttempted = [bool]$rec.centerCheckAttempted
   })
+}
+
+# Flags AWBs for the poller to check right away, ahead of its normal 30-minute
+# rhythm - the specific $awbs given, or every undelivered AWB if none are.
+# Returns how many rows were flagged. The web server never calls the courier
+# itself: doing hundreds of slow outbound calls inside a request would block
+# the single-threaded server and make the hosting proxy time out with 502s.
+function Request-DbTrackingCheck($awbs) {
+  $list = [string[]]@($awbs | Where-Object { $_ } | ForEach-Object { [string]$_ })
+  if ($list.Count -gt 0) {
+    return (Invoke-DbNonQuery "UPDATE tracking SET check_requested_at = now() WHERE awb = ANY(@awbs) AND delivered = false" @{ awbs = $list })
+  }
+  return (Invoke-DbNonQuery "UPDATE tracking SET check_requested_at = now() WHERE delivered = false")
 }

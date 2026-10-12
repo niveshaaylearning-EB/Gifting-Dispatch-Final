@@ -2196,23 +2196,19 @@ $("trackingStatusFilter").addEventListener("change", renderTrackingTab);
 
 function trackingNameKey(s){ return normSpace(s).toLowerCase(); }
 
-// Checks every AWB just imported, in one go, right now - not capped to a
-// handful. The server processes this list synchronously (see server.ps1,
-// /api/tracking/refresh), so a large import does take noticeably longer to
-// finish here - that's accepted on purpose in exchange for seeing the whole
-// batch's real status at once instead of only a first slice of it. The
-// background poller (tracking-poller.ps1) keeps running independently the
-// whole time and takes over the routine every-30-minutes recheck afterward.
+// Queues every AWB just imported for an immediate check. The background
+// poller does the actual courier lookups (the web server answers at once,
+// so it never blocks), working through them within seconds; this tab
+// reloads every few seconds, so results appear as each one is checked.
 function checkAwbsNow(awbList){
   if(!awbList.length){ return Promise.resolve(); }
-  $("trackingImportHint").textContent = "Checking live status for all " + awbList.length + " row(s) just imported - this can take a little while for a large batch…";
   return api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({awb: awbList})})
     .then(function(res){
       $("trackingImportHint").textContent = "";
-      toast("Checked " + ((res && res.checked) || awbList.length) + " newly imported AWB(s).");
+      toast("Checking live status for " + ((res && res.queued) || awbList.length) + " newly imported AWB(s) - results appear here over the next minute or two.");
       loadTracking();
     })
-    .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Couldn't check the new AWBs yet: " + err.message); });
+    .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Couldn't queue the new AWBs for checking: " + err.message); });
 }
 
 // Actually sends rows to the server. Used both for a file with no name
@@ -2367,7 +2363,7 @@ $("trackingRefreshBtn").addEventListener("click", function(){
   $("trackingRefreshBtn").textContent = "Checking…";
   api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({})})
     .then(function(res){
-      toast("Checked " + res.checked + " AWB(s) - never-checked ones first. Everything keeps re-checking automatically every 30 minutes.");
+      toast("Checking live status for " + res.queued + " undelivered AWB(s) now - results update here over the next minute or two.");
       loadTracking();
     })
     .catch(function(err){ toast("Refresh failed: " + err.message); })

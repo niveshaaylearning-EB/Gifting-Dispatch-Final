@@ -15,7 +15,7 @@ permanent stopping point.
 Checked in batches with a short pause between each call so a large list
 doesn't fire dozens of requests at once; the loop interval below means a
 shipment that's still pending/in-progress gets picked up again within
-about 30 seconds of becoming due, not several minutes late - while any one
+about 10 seconds of becoming due, not several minutes late - while any one
 AWB still only gets actually re-checked roughly every 30 minutes based on
 ITS OWN last-checked time, never faster than that once it's already been
 checked at least once. Within each cycle, AWBs that have never been checked
@@ -47,7 +47,9 @@ $CheckIntervalHours = 0.5
 # a bigger batch and shorter sleep both directly cut how long a fresh
 # import sits as "Not yet checked" before it's actually been checked.
 $BatchSizePerCycle = 120
-$LoopSleepSeconds = 30
+# Short, so a "Refresh now" click is picked up within ~10 seconds. An idle
+# cycle is just one SELECT on the tracking table.
+$LoopSleepSeconds = 10
 $PerCallDelayMs = 500
 
 # Must match only an ACTUAL "DELIVERED" status, not "OUT FOR DELIVERY" -
@@ -163,8 +165,10 @@ while ($true) {
 
     # Three priority tiers, checked in this order (never past the 2-hour
     # cutoff - this only reorders AWBs that are already due):
-    #   0. Never-checked, or a delivered AWB still missing its center/POC
-    #      gap-fill - as before, these are always due immediately.
+    #   0. Never-checked, explicitly requested from the dashboard ("Refresh
+    #      now" / right after an import - checkRequested, which overrides the
+    #      30-minute cutoff), or a delivered AWB still missing its center/POC
+    #      gap-fill - always due immediately.
     #   1. Due for a recheck AND the courier's own status text still carries
     #      a days-old date (e.g. a stale "Out for Delivery on 1st Oct 2026")
     #      despite us having already checked it since - a shipment stuck
@@ -177,8 +181,9 @@ while ($true) {
       if (-not (Test-NeedsCheck $rec)) { continue }
       $last = $rec.lastCheckedAt
       $isDelivered = Test-Delivered $rec.statusName
-      if (-not ($isDelivered -or -not $last -or [long]$last -le $cutoff)) { continue }
-      if ($isDelivered -or -not $last) {
+      $requested = [bool]$rec.checkRequested
+      if (-not ($requested -or $isDelivered -or -not $last -or [long]$last -le $cutoff)) { continue }
+      if ($requested -or $isDelivered -or -not $last) {
         $tier = 0; $secondary = 0
       } else {
         $staleDays = Get-StatusStaleDays $rec.statusName
@@ -193,6 +198,8 @@ while ($true) {
     if ($due.Count -gt 0) { Write-Host "$(Get-Date -Format 'u')  Checking $($batch.Count) of $($due.Count) due AWB(s)..." }
 
     foreach ($awb in $batch) {
+     # One AWB failing (e.g. a save error) must not abort the rest of the batch.
+     try {
       $rec = $tracking[$awb]
       $wasAlreadyDelivered = Test-Delivered $rec.statusName
       $result = Get-AwbStatus $awb
@@ -220,6 +227,9 @@ while ($true) {
       # Saved per AWB, not once at the end, so the dashboard sees each result
       # straight away and a crash mid-batch loses nothing already checked.
       Save-DbTrackingCheck $rec
+     } catch {
+      Write-Host "  $awb -> error while checking/saving: $($_.Exception.Message)"
+     }
       Start-Sleep -Milliseconds $PerCallDelayMs
     }
   } catch {

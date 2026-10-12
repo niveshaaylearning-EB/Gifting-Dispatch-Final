@@ -233,76 +233,8 @@ function Test-CanDispatch($user) {
 # every client record is a gift record with a category/flags/status.
 # ---------------------------------------------------------------------------
 
-# "Delivered" is the last stop for an AWB - once true, the poller (see
-# tracking-poller.ps1) never checks that AWB again, per the explicit
-# requirement not to keep tracking something already delivered. Must match
-# only an ACTUAL "DELIVERED" status, not "OUT FOR DELIVERY" - that status
-# still contains the substring "DELIVER" (it's the start of "DELIVERY"),
-# so a plain -match "DELIVER" wrongly treats "still being attempted today"
-# as "already done" and would stop checking before delivery is confirmed.
-function Test-AwbDelivered($statusName) {
-  if (-not $statusName) { return $false }
-  return $statusName -match "^\s*DELIVERED\b"
-}
-
-# A delivered AWB is skipped by the poller/refresh from then on - EXCEPT if
-# its last-center/POC details are still missing (e.g. it was delivered
-# before that field existed, or a check that set delivered=true happened to
-# fail partway through). In that one case it still needs exactly one more
-# check to fill that gap in - after which, with lastCenterName populated,
-# it's truly frozen. This is what makes "capture the center/POC even for
-# delivered ones" self-healing instead of a one-off manual fix.
-function Test-NeedsCheck($rec) {
-  if (-not (Test-AwbDelivered $rec.statusName)) { return $true }
-  return -not $rec.lastCenterName
-}
-
-# Shree Anjani's own public tracking page (shreeanjani.co.in/tracking) calls
-# this exact endpoint client-side to look up an AWB - no login, no key.
-# Same endpoint, called from here instead of a browser.
-# The center currently holding the shipment - and its owner/manager, the
-# actual people to call about a delivery - not just the from/to booking
-# centers. owner_name and manager_name are often the same person filled in
-# twice, sometimes two different people; shown as one combined name so
-# nothing real gets dropped either way.
-function Format-CenterContact($ownerName, $managerName) {
-  $names = @()
-  if ($ownerName) { $names += $ownerName.Trim() }
-  if ($managerName -and $managerName.Trim() -ne $ownerName.Trim()) { $names += $managerName.Trim() }
-  return ($names -join " / ")
-}
-
-function Get-AwbStatus($awb) {
-  $uri = "https://api-customer.shreeanjani.co.in/public/awb/$([System.Uri]::EscapeDataString($awb))"
-  try {
-    $resp = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20
-    if (-not $resp.success -or -not $resp.data.booking) { return @{ ok = $false; error = "Not found in Shree Anjani's system - no booking for this AWB." } }
-    $b = $resp.data.booking
-    # For an AWB Shree Anjani has never seen, the API still answers
-    # success:true with an all-blank booking (no status, no booking date).
-    # Treating that as a successful check saved an empty status, which the
-    # dashboard shows as "Not yet checked" forever - say what it really is.
-    if (-not $b.status_name -and -not $b.booking_date) { return @{ ok = $false; error = "Not found in Shree Anjani's system - no booking for this AWB (another courier's AWB, or a wrong number?)." } }
-    $lc = $resp.data.last_center_details
-    return @{
-      ok = $true
-      statusName = $b.status_name
-      reasonName = $b.reason_name
-      fromCenter = $b.from_center_name
-      toCenter = $b.to_center_name
-      bookingDate = $b.booking_date
-      lastCenterName = $(if ($lc) { $lc.center_name } else { "" })
-      lastCenterContact = $(if ($lc) { Format-CenterContact $lc.owner_name $lc.manager_name } else { "" })
-      lastCenterMobile = $(if ($lc) { $(if ($lc.mobile) { $lc.mobile } else { $lc.phone_number }) } else { "" })
-    }
-  } catch {
-    # A malformed AWB (not 10-15 digits) comes back as HTTP 400 with the
-    # reason in the body - surface that instead of a bare "400 Bad Request".
-    if ($_.ErrorDetails.Message -match 'AWB must be') { return @{ ok = $false; error = "Invalid AWB number format - Shree Anjani AWBs are 10-15 digits." } }
-    return @{ ok = $false; error = $_.Exception.Message }
-  }
-}
-
+# The actual courier lookups live in tracking-poller.ps1 (started by this
+# server - see Ensure-TrackingPoller). The server only queues checks.
 
 # ---------------------------------------------------------------------------
 # Screening rules (ported from the browser - this is the single source of truth)
@@ -1155,55 +1087,16 @@ while ($listener.IsListening) {
       Send-Json $response @{ ok = $true; added = $result.added; updated = $result.updated }
     }
     elseif ($method -eq "POST" -and $path -eq "/api/tracking/refresh") {
-      # On-demand check - the background poller (tracking-poller.ps1) already
-      # does this automatically and skips anything already delivered; this
-      # just doesn't make someone wait for the next cycle.
-      #
-      # Two different caps, deliberately not the same: when the caller hands
-      # over a specific list of AWBs (e.g. right after importing a batch),
-      # that list's size is already known and chosen by the caller, so it's
-      # only capped at 1000 as a sanity backstop, not a real limit - the
-      # request blocks this single-threaded server until it's done (no
-      # per-call delay here, unlike the poller), so a big list does take
-      # noticeably longer, by design, in exchange for seeing it all at once.
-      # With no list given (the "Refresh now" button), it checks every AWB
-      # that still needs a check - never-checked ones FIRST, then the
-      # longest-unchecked - up to 500. (It used to take the first 25 rows in
-      # table order, which meant the same old rows got re-checked on every
-      # click while newly imported ones were never reached.)
+      # Queues a check instead of doing it here: the given AWBs (e.g. a batch
+      # just imported), or every undelivered AWB for the "Refresh now"
+      # button. The poller picks flagged rows up first on its next cycle.
+      # Checking inline meant hundreds of sequential courier calls inside
+      # one request, which blocked this single-threaded server for minutes
+      # and made the hosting proxy fail every other request with a 502.
       $body = Read-Body $request
-      $targets = if ($body -and $body.awb) {
-        @(@($body.awb) | Select-Object -First 1000 | ForEach-Object { Get-DbTrackingRecord ([string]$_) } | Where-Object { $_ })
-      } else {
-        @(Get-DbTrackingRecords | Where-Object { Test-NeedsCheck $_ } |
-          Sort-Object -Property @{ Expression = { if ($_.lastCheckedAt) { 1 } else { 0 } } }, @{ Expression = { if ($_.lastCheckedAt) { [long]$_.lastCheckedAt } else { 0 } } } |
-          Select-Object -First 500)
-      }
-      $checked = 0
-      foreach ($rec in $targets) {
-        $awb = $rec.awb
-        if (-not (Test-NeedsCheck $rec)) { continue }
-        $wasAlreadyDelivered = Test-AwbDelivered $rec.statusName
-        $result = Get-AwbStatus $awb
-        $rec.lastCheckedAt = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
-        if ($result.ok) {
-          $rec.statusName = $result.statusName
-          $rec.reasonName = $result.reasonName
-          $rec.fromCenter = $result.fromCenter
-          $rec.toCenter = $result.toCenter
-          $rec.lastCenterName = $result.lastCenterName
-          $rec.lastCenterContact = $result.lastCenterContact
-          $rec.lastCenterMobile = $result.lastCenterMobile
-          $rec.delivered = Test-AwbDelivered $result.statusName
-          $rec.lastError = ""
-          if ($wasAlreadyDelivered) { $rec.centerCheckAttempted = $true }
-        } else {
-          $rec.lastError = $result.error
-        }
-        Save-DbTrackingCheck $rec
-        $checked++
-      }
-      Send-Json $response @{ ok = $true; checked = $checked }
+      $awbs = if ($body -and $body.awb) { @($body.awb) } else { @() }
+      $queued = Request-DbTrackingCheck $awbs
+      Send-Json $response @{ ok = $true; queued = $queued }
     }
     elseif ($method -eq "GET" -and $path -eq "/api/staging") {
       # Review Upload = every record that currently has at least one flag -
