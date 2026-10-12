@@ -490,6 +490,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
           <option value="pending">Not yet checked</option>
           <option value="progress">Booked / in transit / out for delivery</option>
           <option value="delivered">Delivered</option>
+          <option value="notfound">Not found at Shree Anjani</option>
           <option value="error">Check failed</option>
         </select>
       </div>
@@ -2011,15 +2012,23 @@ function renderDispatchTab(){
 }
 
 // ---------- Live Tracking Status tab ----------
+// "notfound": Shree Anjani has no booking for this AWB (another courier's
+// AWB, or a wrong number) - the server's check says so in lastError. A row
+// checked before that wording existed has a lastCheckedAt but a blank
+// status and no error, which means the same thing. "pending" is strictly
+// never checked at all.
 function trackingStatusGroup(r){
   if(r.delivered){ return "delivered"; }
+  if(r.lastError && /^(Not found in Shree Anjani|Invalid AWB)/.test(r.lastError)){ return "notfound"; }
   if(r.lastError){ return "error"; }
-  if(!r.statusName){ return "pending"; }
+  if(!r.lastCheckedAt){ return "pending"; }
+  if(!r.statusName){ return "notfound"; }
   return "progress";
 }
 function trackingStatusLabel(r){
   var g = trackingStatusGroup(r);
   if(g === "delivered"){ return r.statusName || "Delivered"; }
+  if(g === "notfound"){ return "Not found at Shree Anjani"; }
   if(g === "error"){ return "Check failed"; }
   if(g === "pending"){ return "Not yet checked"; }
   return r.statusName || "In progress";
@@ -2027,7 +2036,7 @@ function trackingStatusLabel(r){
 function trackingStatusPillClass(r){
   var g = trackingStatusGroup(r);
   if(g === "delivered"){ return "pill ok"; }
-  if(g === "error"){ return "pill err"; }
+  if(g === "error" || g === "notfound"){ return "pill err"; }
   if(g === "pending"){ return "pill cat"; }
   return "pill warn";
 }
@@ -2071,7 +2080,7 @@ function renderTrackingStatCards(){
   var host = $("trackingStatCards");
   if(!host) return;
   host.innerHTML = "";
-  var byGroup = { pending: 0, delivered: 0, error: 0 };
+  var byGroup = { pending: 0, delivered: 0, error: 0, notfound: 0 };
   var progressByLabel = {};
   state.tracking.forEach(function(r){
     var g = trackingStatusGroup(r);
@@ -2120,6 +2129,9 @@ function renderTrackingStatCards(){
     makeCard(label, progressByLabel[label], "c-warn", !groupFilter && labelFilter === label, function(){ selectLabel(label); });
   });
   makeCard("Delivered", byGroup.delivered || 0, "c-good", groupFilter === "delivered", function(){ selectGroup("delivered"); });
+  if(byGroup.notfound){
+    makeCard("Not found at Shree Anjani", byGroup.notfound, "c-bad", groupFilter === "notfound", function(){ selectGroup("notfound"); });
+  }
   makeCard("Check failed", byGroup.error || 0, "c-bad", groupFilter === "error", function(){ selectGroup("error"); });
 }
 

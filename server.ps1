@@ -276,8 +276,13 @@ function Get-AwbStatus($awb) {
   $uri = "https://api-customer.shreeanjani.co.in/public/awb/$([System.Uri]::EscapeDataString($awb))"
   try {
     $resp = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20
-    if (-not $resp.success -or -not $resp.data.booking) { return @{ ok = $false; error = "No booking found for this AWB." } }
+    if (-not $resp.success -or -not $resp.data.booking) { return @{ ok = $false; error = "Not found in Shree Anjani's system - no booking for this AWB." } }
     $b = $resp.data.booking
+    # For an AWB Shree Anjani has never seen, the API still answers
+    # success:true with an all-blank booking (no status, no booking date).
+    # Treating that as a successful check saved an empty status, which the
+    # dashboard shows as "Not yet checked" forever - say what it really is.
+    if (-not $b.status_name -and -not $b.booking_date) { return @{ ok = $false; error = "Not found in Shree Anjani's system - no booking for this AWB (another courier's AWB, or a wrong number?)." } }
     $lc = $resp.data.last_center_details
     return @{
       ok = $true
@@ -291,6 +296,9 @@ function Get-AwbStatus($awb) {
       lastCenterMobile = $(if ($lc) { $(if ($lc.mobile) { $lc.mobile } else { $lc.phone_number }) } else { "" })
     }
   } catch {
+    # A malformed AWB (not 10-15 digits) comes back as HTTP 400 with the
+    # reason in the body - surface that instead of a bare "400 Bad Request".
+    if ($_.ErrorDetails.Message -match 'AWB must be') { return @{ ok = $false; error = "Invalid AWB number format - Shree Anjani AWBs are 10-15 digits." } }
     return @{ ok = $false; error = $_.Exception.Message }
   }
 }
