@@ -121,6 +121,13 @@ button.small{padding:5px 10px; font-size:12px; min-height:30px;}
 .import-review-row{background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:8px;}
 .import-review-check{display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:13px;}
 .import-review-check input{margin-top:3px;}
+.pdf-preview-list{max-height:360px; overflow:auto; margin-top:8px; border:1px solid var(--border); border-radius:8px; background:var(--surface);}
+.pdf-preview-table{min-width:0; width:100%; font-size:12.5px;}
+.pdf-preview-table thead th{position:sticky; top:0;}
+.pdf-preview-table td{padding:4px 10px; border-bottom:1px solid var(--border); vertical-align:middle;}
+.pdf-preview-table td:first-child, .pdf-preview-table th:first-child{width:34px;}
+.pdf-preview-table td:nth-child(2){width:170px;}
+.pdf-preview-table input[type=text]{width:100%; font-size:12.5px; padding:4px 8px; min-height:0;}
 .import-review-existing{margin:6px 0 0 24px; font-size:12px; color:var(--text-muted);}
 
 .upload-zone{display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
@@ -485,7 +492,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-tracking" data-tabpanel="tracking" hidden>
     <div class="card">
       <h2>Live Tracking Status</h2>
-      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Couriers tracked: Anjani, Shree Tirupati and Delhivery &mdash; pick the courier agency first, and every AWB in the file is checked on that courier's website (or choose "Mixed file" for a sheet with its own Courier column). Import an Excel file with a Tracking ID / AWB / Docket No. column (required) plus Name, State/Location, Phone and Courier where present &mdash; any other columns (shipping address, pincode, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
+      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Couriers tracked: Anjani, Shree Tirupati and Delhivery &mdash; pick the courier agency first, and every AWB in the file is checked on that courier's website (or choose "Mixed file" for a sheet with its own Courier column). A PDF (e.g. a courier booking register) works too: the tracking ID and receiver's name are read from it and shown for a quick check before import. Import an Excel file with a Tracking ID / AWB / Docket No. column (required) plus Name, State/Location, Phone and Courier where present &mdash; any other columns (shipping address, pincode, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
       <div class="row">
         <select id="trackingCourierSelect" title="Every AWB in the file is tracked on this courier's website">
           <option value="">Select courier agency&hellip;</option>
@@ -494,11 +501,12 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
           <option value="delhivery">Delhivery Courier Service</option>
           <option value="auto">Mixed file - use its Courier column / detect</option>
         </select>
-        <input type="file" id="trackingFileInput" accept=".xlsx,.xls" hidden>
-        <button class="primary small" id="trackingImportBtn">Import Excel file</button>
+        <input type="file" id="trackingFileInput" accept=".xlsx,.xls,.pdf" hidden>
+        <button class="primary small" id="trackingImportBtn">Import Excel / PDF</button>
         <button class="ghost small" id="trackingRefreshBtn">Refresh now</button>
         <span class="hint" id="trackingImportHint" style="margin-top:0;"></span>
       </div>
+      <div id="trackingPdfPreview" class="import-review" hidden></div>
       <div id="trackingImportReview" class="import-review" hidden></div>
       <div class="stat-cards" id="trackingStatCards"></div>
       <div class="row" style="margin-top:10px;">
@@ -535,7 +543,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
         </thead>
         <tbody id="trackingTbody"></tbody>
       </table>
-      <div class="empty" id="trackingEmpty">No tracking records yet &mdash; import an Excel file to get started.</div>
+      <div class="empty" id="trackingEmpty">No tracking records yet &mdash; import an Excel or PDF file to get started.</div>
     </div>
   </section>
 
@@ -572,6 +580,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
 
 <script src="/vendor/xlsx.full.min.js"></script>
 <script src="/vendor/qrcode.min.js"></script>
+<script src="/vendor/pdf.min.js"></script>
 <script>
 (function(){
 "use strict";
@@ -2203,7 +2212,7 @@ function renderTrackingTab(){
   tbody.innerHTML = "";
   if(!rows.length){
     $("trackingEmpty").hidden = false;
-    $("trackingEmpty").textContent = state.tracking.length ? "Nothing matches that search/filter." : "No tracking records yet — import an Excel file to get started.";
+    $("trackingEmpty").textContent = state.tracking.length ? "Nothing matches that search/filter." : "No tracking records yet — import an Excel or PDF file to get started.";
     return;
   }
   $("trackingEmpty").hidden = true;
@@ -2421,38 +2430,228 @@ $("trackingFileInput").addEventListener("change", function(e){
         };
       }).filter(function(r){ return r.awb; });
       if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }
-
-      var existingByName = {};
-      state.tracking.forEach(function(t){
-        var key = trackingNameKey(t.name);
-        if(!key) return;
-        (existingByName[key] = existingByName[key] || []).push(t);
-      });
-      var fresh = [], flagged = [];
-      rows.forEach(function(r){
-        var key = trackingNameKey(r.name);
-        var matches = key ? (existingByName[key] || []).filter(function(t){ return t.awb !== r.awb; }) : [];
-        if(matches.length){ flagged.push({row: r, matches: matches}); }
-        else{ fresh.push(r); }
-      });
-
-      if(!flagged.length){
-        importTrackingRows(rows);
-      } else {
-        if(fresh.length){
-          // Rows with no name clash import right away - only the flagged
-          // ones wait on a decision.
-          importTrackingRows(fresh);
-        }
-        openTrackingImportReview([], flagged);
-      }
+      processTrackingRows(rows);
     }catch(err){
       toast("Couldn't read that file: " + err.message);
     }
   };
+  if(/\.pdf$/i.test(file.name)){
+    reader.onload = function(ev){
+      extractTrackingFromPdf(ev.target.result)
+        .then(function(found){ openTrackingPdfPreview(file.name, found); })
+        .catch(function(err){ toast("Couldn't read that PDF: " + err.message); });
+    };
+  }
   reader.readAsArrayBuffer(file);
   e.target.value = "";
 });
+
+// Shared by Excel and PDF imports once rows are known: rows whose name
+// clashes with someone already tracked (different AWB) wait in the review
+// panel; the rest import straight away.
+function processTrackingRows(rows){
+  var existingByName = {};
+  state.tracking.forEach(function(t){
+    var key = trackingNameKey(t.name);
+    if(!key) return;
+    (existingByName[key] = existingByName[key] || []).push(t);
+  });
+  var fresh = [], flagged = [];
+  rows.forEach(function(r){
+    var key = trackingNameKey(r.name);
+    var matches = key ? (existingByName[key] || []).filter(function(t){ return t.awb !== r.awb; }) : [];
+    if(matches.length){ flagged.push({row: r, matches: matches}); }
+    else{ fresh.push(r); }
+  });
+  if(!flagged.length){
+    importTrackingRows(rows);
+  } else {
+    if(fresh.length){ importTrackingRows(fresh); }
+    openTrackingImportReview([], flagged);
+  }
+}
+
+// ---------- PDF import ----------
+// PDFs have no fixed layout; all that's needed from them is each tracking ID
+// (docket / AWB / doc no. / document no.) and the recipient's name. Text is
+// read with its position (PDF.js), grouped into lines, and the header row
+// tells which column is the tracking ID and which is the RECEIVER's name -
+// never the sender's (e.g. a booking register's "Sender Name" column holds
+// the shop's own name on every row). Names that wrap onto the next line are
+// joined back up. With no recognisable header, each line's long number is
+// taken as the AWB and the name is the rightmost text on that line that
+// isn't repeated on most rows. Either way the result goes to an editable
+// preview before anything is imported.
+var PDF_AWB_TOKEN_RE = /^[A-Z]{0,4}\d{9,16}[A-Z]{0,3}$/i;
+var PDF_AWB_HEAD_RE = /^(docket|awb|doc\b|doc\.|document|tracking|consignment|c\.?n\.?\b|waybill|airway)/i;
+var PDF_NAME_HEAD_RE = /^(reci?e?i?ver|receiver|reciever|consignee|recipient|customer|party|buyer|client|deliver(y)? to)/i;
+var PDF_NOT_NAME_HEAD_RE = /(sender|shipper|consignor|from|courier|company|booked by)/i;
+var PDF_FOOTER_RE = /(grand\s*total|total\s*of|^total\b|page\s*\d)/i;
+
+function pdfLinesOfPage(content){
+  var items = content.items.map(function(it){
+    return { s: normSpace(it.str), x: it.transform[4], y: it.transform[5], w: it.width || 0 };
+  }).filter(function(it){ return it.s; });
+  items.sort(function(a,b){ return (b.y - a.y) || (a.x - b.x); });
+  var lines = [];
+  items.forEach(function(it){
+    var last = lines[lines.length - 1];
+    if(last && Math.abs(last.y - it.y) <= 3){ last.items.push(it); }
+    else { lines.push({ y: it.y, items: [it] }); }
+  });
+  lines.forEach(function(l){ l.items.sort(function(a,b){ return a.x - b.x; }); l.text = l.items.map(function(i){ return i.s; }).join(" "); });
+  return lines;
+}
+
+// Header = the first line with a tracking-ID heading word, plus up to two
+// lines under it with no tracking ID (two-line headings like "Docket / No.",
+// "Reciver / Name"). Headings stacked at the same x form one column.
+function pdfFindColumns(lines){
+  for(var i=0;i<lines.length;i++){
+    if(!lines[i].items.some(function(it){ return PDF_AWB_HEAD_RE.test(it.s); })){ continue; }
+    var head = lines[i].items.slice();
+    for(var j=i+1;j<Math.min(lines.length, i+3);j++){
+      if(lines[j].items.some(function(it){ return PDF_AWB_TOKEN_RE.test(it.s); })){ break; }
+      head = head.concat(lines[j].items);
+    }
+    head.sort(function(a,b){ return a.x - b.x; });
+    var cols = [];
+    head.forEach(function(it){
+      var c = cols.filter(function(c){ return Math.abs(c.x - it.x) <= 12; })[0];
+      if(c){ c.text += " " + it.s; } else { cols.push({ x: it.x, text: it.s }); }
+    });
+    cols.sort(function(a,b){ return a.x - b.x; });
+    var awbIdx = -1, nameIdx = -1;
+    cols.forEach(function(c, k){
+      if(awbIdx === -1 && PDF_AWB_HEAD_RE.test(c.text)){ awbIdx = k; }
+      if(nameIdx === -1 && PDF_NAME_HEAD_RE.test(c.text)){ nameIdx = k; }
+    });
+    if(nameIdx === -1){
+      cols.forEach(function(c, k){ if(nameIdx === -1 && /\bname\b/i.test(c.text) && !PDF_NOT_NAME_HEAD_RE.test(c.text)){ nameIdx = k; } });
+    }
+    if(awbIdx === -1){ continue; }
+    function range(k){ return { from: cols[k].x - 8, to: k + 1 < cols.length ? cols[k+1].x - 8 : Infinity }; }
+    return { headerLine: j - 1, awb: range(awbIdx), name: nameIdx === -1 ? null : range(nameIdx) };
+  }
+  return null;
+}
+
+function pdfIn(it, r){ return r && it.x >= r.from && it.x < r.to; }
+
+// PDF.js often hands back one item per word. Words separated by no more
+// than a normal space become one phrase ("GANGA CHARAN"); a bigger gap means
+// the next column has started.
+function pdfPhrases(items){
+  var out = [];
+  items.forEach(function(it){
+    var prev = out[out.length - 1];
+    if(prev && it.x - (prev.x + prev.w) < 6){ prev.s += " " + it.s; prev.w = (it.x + it.w) - prev.x; }
+    else { out.push({ s: it.s, x: it.x, w: it.w }); }
+  });
+  return out;
+}
+
+async function extractTrackingFromPdf(buf){
+  if(!window.pdfjsLib){ throw new Error("PDF reader didn't load - refresh the page and try again"); }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.js";
+  var doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
+  var rows = [], cols = null, noHeaderLines = [];
+  for(var p=1;p<=doc.numPages;p++){
+    var page = await doc.getPage(p);
+    var lines = pdfLinesOfPage(await page.getTextContent());
+    var found = pdfFindColumns(lines);
+    if(found){ cols = found; }
+    var start = found ? found.headerLine + 1 : 0;
+    var last = null;
+    for(var i=start;i<lines.length;i++){
+      var line = lines[i];
+      if(PDF_FOOTER_RE.test(line.text)){ last = null; continue; }
+      var awbItem = line.items.filter(function(it){ return PDF_AWB_TOKEN_RE.test(it.s) && (!cols || pdfIn(it, cols.awb)); })[0];
+      if(awbItem){
+        if(cols && cols.name){
+          last = { awb: awbItem.s.toUpperCase(), name: line.items.filter(function(it){ return pdfIn(it, cols.name); }).map(function(it){ return it.s; }).join(" ") };
+          rows.push(last);
+        } else {
+          noHeaderLines.push({ awb: awbItem.s.toUpperCase(), items: pdfPhrases(line.items.filter(function(it){ return it !== awbItem; })) });
+          last = null;
+        }
+      } else if(last && cols && cols.name){
+        // A line with no tracking ID right under a row: its text in the
+        // name column is that row's name wrapping onto a second line.
+        var extra = line.items.filter(function(it){ return pdfIn(it, cols.name); });
+        var other = line.items.filter(function(it){ return !pdfIn(it, cols.name) && !/^[\d.,\s]+$/.test(it.s); });
+        if(extra.length && !other.length){ last.name = normSpace(last.name + " " + extra.map(function(it){ return it.s; }).join(" ")); }
+        else { last = null; }
+      }
+    }
+  }
+  if(noHeaderLines.length){
+    // No usable header: drop text that repeats on 40%+ of rows (the
+    // sender's own name, a fixed city...) and numbers, then take the
+    // rightmost remaining text as the name.
+    var freq = {};
+    noHeaderLines.forEach(function(r){ r.items.forEach(function(it){ freq[it.s] = (freq[it.s] || 0) + 1; }); });
+    var limit = Math.max(2, Math.ceil(noHeaderLines.length * 0.4));
+    noHeaderLines.forEach(function(r){
+      var cands = r.items.filter(function(it){ return /[A-Za-z]{2,}/.test(it.s) && !(noHeaderLines.length > 2 && freq[it.s] >= limit); });
+      rows.push({ awb: r.awb, name: cands.length ? cands[cands.length - 1].s : "" });
+    });
+  }
+  var seen = {};
+  return rows.filter(function(r){ if(seen[r.awb]){ return false; } seen[r.awb] = true; return true; });
+}
+
+// Editable preview of what was read from the PDF; nothing is imported until
+// "Import" is clicked, and only the ticked rows.
+function openTrackingPdfPreview(fileName, found){
+  var host = $("trackingPdfPreview");
+  host.innerHTML = "";
+  if(!found.length){
+    host.hidden = true;
+    toast("No tracking IDs (docket / AWB / doc no.) found in " + fileName + ".");
+    return;
+  }
+  host.hidden = false;
+  var chosen = $("trackingCourierSelect").value;
+  var head = document.createElement("div"); head.className = "hint"; head.style.marginTop = "0";
+  head.textContent = "Read " + found.length + " tracking ID(s) from " + fileName + " - courier: " +
+    (chosen && chosen !== "auto" ? courierLabel(chosen) : "identified automatically") +
+    ". Check the names (you can correct any), untick rows you don't want, then Import.";
+  host.appendChild(head);
+
+  var wrap = document.createElement("div"); wrap.className = "pdf-preview-list";
+  var table = document.createElement("table"); table.className = "pdf-preview-table";
+  var thead = document.createElement("thead"); var htr = document.createElement("tr");
+  ["", "AWB / Docket No.", "Name"].forEach(function(t){ var th = document.createElement("th"); th.textContent = t; htr.appendChild(th); });
+  thead.appendChild(htr); table.appendChild(thead);
+  var tbody = document.createElement("tbody");
+  var entries = [];
+  found.forEach(function(r){
+    var tr = document.createElement("tr");
+    var td0 = document.createElement("td"); var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = true; td0.appendChild(cb);
+    var td1 = document.createElement("td"); td1.className = "mono"; td1.textContent = r.awb;
+    var td2 = document.createElement("td"); var inp = document.createElement("input"); inp.type = "text"; inp.value = r.name; inp.placeholder = "(name not found - type it)"; td2.appendChild(inp);
+    tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);
+    entries.push({ cb: cb, awb: r.awb, name: inp });
+  });
+  table.appendChild(tbody); wrap.appendChild(table); host.appendChild(wrap);
+
+  var actions = document.createElement("div"); actions.className = "row"; actions.style.marginTop = "10px";
+  var importBtn = document.createElement("button"); importBtn.className = "primary small"; importBtn.textContent = "Import";
+  importBtn.addEventListener("click", function(){
+    var courier = chosen && chosen !== "auto" ? chosen : "";
+    var rows = entries.filter(function(e){ return e.cb.checked; }).map(function(e){
+      return { awb: e.awb, name: normSpace(e.name.value), state: "", phone: "", courier: courier };
+    });
+    if(!rows.length){ toast("Nothing ticked to import."); return; }
+    host.hidden = true; host.innerHTML = "";
+    processTrackingRows(rows);
+  });
+  var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost small"; cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", function(){ host.hidden = true; host.innerHTML = ""; });
+  actions.appendChild(importBtn); actions.appendChild(cancelBtn);
+  host.appendChild(actions);
+}
 
 $("trackingRefreshBtn").addEventListener("click", function(){
   $("trackingRefreshBtn").disabled = true;

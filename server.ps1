@@ -58,7 +58,9 @@ $MinPasswordLength = 8
 # Third-party scripts are served from here (public/vendor), never a CDN, and
 # only these exact files.
 $VendorFiles = @{}
-foreach ($f in @("xlsx.full.min.js", "qrcode.min.js")) {
+# pdf.min.js + pdf.worker.min.js: Mozilla PDF.js 3.11.174, for reading
+# tracking IDs out of uploaded PDFs in the browser.
+foreach ($f in @("xlsx.full.min.js", "qrcode.min.js", "pdf.min.js", "pdf.worker.min.js")) {
   $VendorFiles[$f] = [System.IO.File]::ReadAllBytes((Join-Path $publicDir "vendor/$f"))
 }
 
