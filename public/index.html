@@ -2154,10 +2154,13 @@ function renderTrackingStatCards(){
     renderTrackingTab();
   }
 
+  makeCard("Total AWBs", state.tracking.length, "c-accent", !catFilter, function(){
+    $("trackingStatusFilter").value = ""; $("trackingOtherFilter").value = ""; renderTrackingTab();
+  });
   makeCard("Delivered", counts.delivered, "c-good", catFilter === "delivered", function(){ selectCategory("delivered"); });
   makeCard("In Transit", counts.transit, "c-warn", catFilter === "transit", function(){ selectCategory("transit"); });
   makeCard("Not found at courier", counts.notfound, "c-bad", catFilter === "notfound", function(){ selectCategory("notfound"); });
-  makeCard("Others", counts.other, "c-accent", catFilter === "other", function(){ selectCategory("other"); });
+  makeCard("Others", counts.other, "", catFilter === "other", function(){ selectCategory("other"); });
 }
 
 function renderTrackingTab(){
