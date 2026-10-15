@@ -1084,7 +1084,7 @@ while ($listener.IsListening) {
         # Only couriers the poller knows how to check; anything else is left
         # blank so the poller works it out by asking each supported courier.
         $courier = ("" + $row.courier).Trim().ToLowerInvariant()
-        if ($courier -notin @("shreeanjani", "tirupati")) { $courier = "" }
+        if ($courier -notin @("shreeanjani", "tirupati", "delhivery")) { $courier = "" }
         $rows += @{ awb = $awb; name = ("" + $row.name).Trim(); phone = ("" + $row.phone).Trim(); state = ("" + $row.state).Trim(); courier = $courier }
       }
       $result = Import-DbTrackingRows $rows

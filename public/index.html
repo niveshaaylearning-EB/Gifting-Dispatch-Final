@@ -474,8 +474,15 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-tracking" data-tabpanel="tracking" hidden>
     <div class="card">
       <h2>Live Tracking Status</h2>
-      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Couriers tracked: Shree Anjani and Shree Tirupati &mdash; if the sheet has a Courier column it's used, otherwise each AWB's courier is identified automatically. Import an Excel file with a Tracking ID / AWB / Docket No. column (required) plus Name, State/Location, Phone and Courier where present &mdash; any other columns (shipping address, pincode, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
+      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Couriers tracked: Anjani, Shree Tirupati and Delhivery &mdash; pick the courier agency first, and every AWB in the file is checked on that courier's website (or choose "Mixed file" for a sheet with its own Courier column). Import an Excel file with a Tracking ID / AWB / Docket No. column (required) plus Name, State/Location, Phone and Courier where present &mdash; any other columns (shipping address, pincode, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
       <div class="row">
+        <select id="trackingCourierSelect" title="Every AWB in the file is tracked on this courier's website">
+          <option value="">Select courier agency&hellip;</option>
+          <option value="shreeanjani">Anjani Courier Service</option>
+          <option value="tirupati">Shree Tirupati Courier Service</option>
+          <option value="delhivery">Delhivery Courier Service</option>
+          <option value="auto">Mixed file - use its Courier column / detect</option>
+        </select>
         <input type="file" id="trackingFileInput" accept=".xlsx,.xls" hidden>
         <button class="primary small" id="trackingImportBtn">Import Excel file</button>
         <button class="ghost small" id="trackingRefreshBtn">Refresh now</button>
@@ -2017,7 +2024,7 @@ function renderDispatchTab(){
 // checked before that wording existed has a lastCheckedAt but a blank
 // status and no error, which means the same thing. "pending" is strictly
 // never checked at all.
-var COURIER_LABELS = { shreeanjani: "Shree Anjani", tirupati: "Shree Tirupati" };
+var COURIER_LABELS = { shreeanjani: "Shree Anjani", tirupati: "Shree Tirupati", delhivery: "Delhivery" };
 function courierLabel(key){ return COURIER_LABELS[key] || "Courier not identified yet"; }
 function trackingStatusGroup(r){
   if(r.delivered){ return "delivered"; }
@@ -2291,7 +2298,17 @@ function openTrackingImportReview(fresh, flagged){
   host.appendChild(actions);
 }
 
-$("trackingImportBtn").addEventListener("click", function(){ $("trackingFileInput").click(); });
+// The courier is chosen before the file, so every AWB in it is checked on
+// that courier's own site only. "Mixed file" keeps the per-row Courier
+// column / automatic identification for sheets that combine couriers.
+$("trackingImportBtn").addEventListener("click", function(){
+  if(!$("trackingCourierSelect").value){
+    toast("Select the courier agency first - every AWB in the file will be tracked on that courier's website.");
+    $("trackingCourierSelect").focus();
+    return;
+  }
+  $("trackingFileInput").click();
+});
 $("trackingFileInput").addEventListener("change", function(e){
   var file = e.target.files && e.target.files[0];
   if(!file) return;
@@ -2321,7 +2338,7 @@ $("trackingFileInput").addEventListener("change", function(e){
       }
       // Only the tracking ID is required - name, state, phone and courier are
       // picked up when the sheet has them and left blank when it doesn't.
-      var awbCol = findCol(["tracking id","awb","docket","doc no","document no","consignment no","tracking no"]);
+      var awbCol = findCol(["tracking id","awb","docket","doc no","document no","consignment no","tracking no","waybill"]);
       var nameCol = findCol(["name","consignee","receiver","recipient"], ["courier","company","agency"]);
       var stateCol = findCol(["state","location"]);
       var phoneCol = findCol(["phone","mobile","contact"]);
@@ -2337,13 +2354,16 @@ $("trackingFileInput").addEventListener("change", function(e){
         var t = normSpace(v).toLowerCase();
         if(t.indexOf("tirupati") !== -1){ return "tirupati"; }
         if(t.indexOf("anjani") !== -1){ return "shreeanjani"; }
+        if(t.indexOf("delhivery") !== -1){ return "delhivery"; }
         return "";
       }
+      var chosenCourier = $("trackingCourierSelect").value;
       function cell(r, col){ return col === -1 ? "" : normSpace(r[col]); }
       var rows = rawRows.slice(1).map(function(r){
         return {
           awb: cell(r, awbCol), name: cell(r, nameCol), state: cell(r, stateCol),
-          phone: cell(r, phoneCol), courier: courierCol === -1 ? "" : courierKey(r[courierCol])
+          phone: cell(r, phoneCol),
+          courier: chosenCourier && chosenCourier !== "auto" ? chosenCourier : (courierCol === -1 ? "" : courierKey(r[courierCol]))
         };
       }).filter(function(r){ return r.awb; });
       if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }

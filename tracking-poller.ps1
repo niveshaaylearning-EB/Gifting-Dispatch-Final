@@ -7,8 +7,9 @@ table as the server (see db.ps1 / .env). Needs PowerShell 7+:
 
 For every AWB in the tracking table that isn't yet marked delivered, and hasn't
 been checked in the last 30 minutes (or has never been checked), it looks the
-AWB up with its courier - Shree Anjani (public JSON API) or Shree Tirupati
-(their website's own AWB lookup) - and records the latest status. An AWB
+AWB up with its courier - Shree Anjani or Delhivery (their public JSON APIs)
+or Shree Tirupati (their website's own AWB lookup) - and records the latest
+status. The courier normally comes from the dropdown chosen at import. An AWB
 whose courier isn't known is tried against each supported courier; the one
 with a real booking is saved as its courier. Once an AWB's status name
 contains "DELIVER", it is never checked again - that's the explicit,
@@ -256,9 +257,47 @@ function Get-TirupatiStatus($awb) {
   }
 }
 
+# Delhivery: the same public JSON endpoint www.delhivery.com/tracking calls
+# (no login). It refuses requests without the site's Origin header. An AWB it
+# doesn't know comes back as data:[] with "invalid AWB or very old package".
+function Get-DelhiveryStatus($awb) {
+  $uri = "https://dlv-api.delhivery.com/v3/unified-tracking-new?wbn=$([System.Uri]::EscapeDataString($awb))"
+  try {
+    $resp = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20 -UserAgent $TirupatiUA `
+      -Headers @{ Origin = "https://www.delhivery.com"; Referer = "https://www.delhivery.com/" }
+    $p = @($resp.data)[0]
+    if (-not $p -or -not $p.status -or -not $p.status.status) { return @{ ok = $false; notFound = $true; error = "No booking at Delhivery ($($resp.message))." } }
+    # Shown the same way as the other couriers ("DELIVERED ON 7/10/2026"), so
+    # the delivered rule and the stuck-shipment date priority work unchanged.
+    $status = "$($p.status.status)".ToUpperInvariant()
+    $when = [DateTime]::MinValue
+    if ([DateTime]::TryParse("$($p.status.statusDateTime)", [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$when)) {
+      $status = "$status ON $($when.Day)/$($when.Month)/$($when.Year)"
+    }
+    $scans = @($p.trackingStates | ForEach-Object { $_.scans } | Where-Object { $_ })
+    $last = if ($scans.Count) { $scans[-1] } else { $null }
+    $dest = @($p.addressInfo.city, $p.addressInfo.state) | Where-Object { $_ }
+    return @{
+      ok = $true
+      courier = "delhivery"
+      statusName = $status
+      reasonName = "$($p.status.instructions)"
+      fromCenter = ""
+      toCenter = ($dest -join ", ")
+      lastCenterName = $(if ($last -and $last.scannedLocation) { "$($last.scannedLocation)" } elseif ($last) { "$($last.cityLocation)" } else { "" })
+      lastCenterContact = ""
+      lastCenterMobile = ""
+    }
+  } catch {
+    if ($_.ErrorDetails.Message -match 'valid waybill') { return @{ ok = $false; notFound = $true; error = "Not a valid Delhivery AWB." } }
+    return @{ ok = $false; error = "Delhivery: $($_.Exception.Message)" }
+  }
+}
+
 $CourierLookups = [ordered]@{
   shreeanjani = { param($a) Get-ShreeAnjaniStatus $a }
   tirupati    = { param($a) Get-TirupatiStatus $a }
+  delhivery   = { param($a) Get-DelhiveryStatus $a }
 }
 
 # Uses the AWB's own courier when the upload said which one it is (or an
@@ -269,13 +308,16 @@ $CourierLookups = [ordered]@{
 # falling through to "not found".
 function Get-AwbStatus($awb, $courier) {
   if ($courier -and $CourierLookups.Contains($courier)) { return (& $CourierLookups[$courier] $awb) }
-  # Tirupati dockets are 12 digits; try that one first for those.
-  $order = if ($awb -match '^\d{12}$') { @("tirupati", "shreeanjani") } else { @("shreeanjani", "tirupati") }
+  # Most likely courier first, by AWB length: Tirupati dockets are 12 digits,
+  # Delhivery AWBs 13-14, Shree Anjani's usually 10.
+  $order = if ($awb -match '^\d{12}$') { @("tirupati", "shreeanjani", "delhivery") }
+           elseif ($awb -match '^\d{13,14}$') { @("delhivery", "shreeanjani", "tirupati") }
+           else { @("shreeanjani", "delhivery", "tirupati") }
   foreach ($c in $order) {
     $r = & $CourierLookups[$c] $awb
     if ($r.ok -or -not $r.notFound) { return $r }
   }
-  return @{ ok = $false; notFound = $true; error = "Not found at any supported courier (Shree Anjani, Shree Tirupati) - wrong AWB, or a courier the dashboard doesn't track yet." }
+  return @{ ok = $false; notFound = $true; error = "Not found at any supported courier (Anjani, Shree Tirupati, Delhivery) - wrong AWB, or a courier the dashboard doesn't track yet." }
 }
 
 Write-Host "Tracking poller started. Watching the tracking table in $dbLocation every $LoopSleepSeconds seconds, refreshing each AWB roughly every $CheckIntervalHours hours until delivered."
