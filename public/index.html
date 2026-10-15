@@ -162,6 +162,17 @@ thead th{
   border-bottom:1px solid var(--border); white-space:nowrap;
 }
 th[data-sort-key]{cursor:pointer; user-select:none;}
+
+/* Live Tracking table: fixed column widths (see its <colgroup>) so the
+   whole table fits the page width with no sideways scrolling; long values
+   wrap inside their own column instead of pushing the table wider. */
+#trackingTable{table-layout:fixed; min-width:880px; font-size:12.5px;}
+#trackingTable thead th{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:.02em; padding:11px 10px; vertical-align:middle;}
+#trackingTable tbody td{padding:10px 10px; vertical-align:middle; overflow-wrap:break-word; line-height:1.4;}
+#trackingTable td .pill{white-space:normal; display:inline-block; text-align:left; line-height:1.35; padding:4px 9px; border-radius:8px;}
+#trackingTable .cell-sub{font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--text-muted); margin-top:3px;}
+#trackingTable .cell-name{font-weight:600;}
+#trackingTable .cell-when{color:var(--text-muted); white-space:nowrap; font-size:11.5px;}
 th[data-sort-key]:hover{color:var(--text);}
 .sort-arrow{display:inline-block; min-width:10px; font-size:10px; color:var(--accent);}
 .col-filter-btn{
@@ -507,15 +518,19 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
 
     <div class="tablewrap">
       <table id="trackingTable">
+        <colgroup>
+          <col style="width:15%"><col style="width:15%"><col style="width:10%"><col style="width:11%">
+          <col style="width:20%"><col style="width:19%"><col style="width:10%">
+        </colgroup>
         <thead>
           <tr>
-            <th data-sort-key="awb">AWB / Tracking ID<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="awb" title="Filter">&#9662;</button></th>
+            <th data-sort-key="awb" title="AWB / Tracking ID / Docket No.">AWB No.<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="awb" title="Filter">&#9662;</button></th>
             <th data-sort-key="name">Name<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="name" title="Filter">&#9662;</button></th>
             <th data-sort-key="phone">Phone<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="phone" title="Filter">&#9662;</button></th>
             <th data-sort-key="state">State<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="state" title="Filter">&#9662;</button></th>
             <th data-sort-key="status">Status<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="status" title="Filter">&#9662;</button></th>
             <th data-sort-key="lastCenter">Last Center &amp; POC<span class="sort-arrow"></span><button class="col-filter-btn" data-filter-col="lastCenter" title="Filter">&#9662;</button></th>
-            <th data-sort-key="lastChecked">Last checked<span class="sort-arrow"></span></th>
+            <th data-sort-key="lastChecked" title="When the courier was last checked">Checked At<span class="sort-arrow"></span></th>
           </tr>
         </thead>
         <tbody id="trackingTbody"></tbody>
@@ -2027,7 +2042,7 @@ function renderDispatchTab(){
 // status and no error, which means the same thing. "pending" is strictly
 // never checked at all.
 var COURIER_LABELS = { shreeanjani: "Shree Anjani", tirupati: "Shree Tirupati", delhivery: "Delhivery" };
-function courierLabel(key){ return COURIER_LABELS[key] || "Courier not identified yet"; }
+function courierLabel(key){ return COURIER_LABELS[key] || "Courier unknown"; }
 function trackingStatusGroup(r){
   if(r.delivered){ return "delivered"; }
   if(r.lastError && /^(Not found|No booking at|Not a valid|Invalid AWB)/.test(r.lastError)){ return "notfound"; }
@@ -2197,10 +2212,10 @@ function renderTrackingTab(){
     var tr = document.createElement("tr");
     var tdAwb = document.createElement("td");
     var awbLine = document.createElement("div"); awbLine.className = "mono"; awbLine.textContent = r.awb || "—";
-    var courierLine = document.createElement("div"); courierLine.className = "qr-url"; courierLine.style.maxWidth = "none";
+    var courierLine = document.createElement("div"); courierLine.className = "cell-sub";
     courierLine.textContent = courierLabel(r.courier);
     tdAwb.appendChild(awbLine); tdAwb.appendChild(courierLine);
-    var tdName = document.createElement("td"); tdName.textContent = r.name || "—";
+    var tdName = document.createElement("td"); tdName.className = "cell-name"; tdName.textContent = r.name || "—";
     var tdPhone = document.createElement("td"); tdPhone.className = "mono"; tdPhone.textContent = r.phone || "—";
     var tdState = document.createElement("td"); tdState.textContent = r.state || "—";
     var tdStatus = document.createElement("td");
@@ -2212,14 +2227,24 @@ function renderTrackingTab(){
       var centerName = document.createElement("div"); centerName.textContent = r.lastCenterName || "—";
       tdCenter.appendChild(centerName);
       if(r.lastCenterContact || r.lastCenterMobile){
-        var poc = document.createElement("div"); poc.className = "qr-url"; poc.style.maxWidth = "none";
+        var poc = document.createElement("div"); poc.className = "cell-sub";
         poc.textContent = [r.lastCenterContact, r.lastCenterMobile].filter(function(v){ return v; }).join(" · ");
         tdCenter.appendChild(poc);
       }
     } else {
       tdCenter.textContent = "—";
     }
-    var tdWhen = document.createElement("td"); tdWhen.textContent = r.lastCheckedAt ? new Date(r.lastCheckedAt).toLocaleString() : "—";
+    // Compact two-line "15 Oct" / "3:25 PM" instead of a full locale string.
+    var tdWhen = document.createElement("td"); tdWhen.className = "cell-when";
+    if(r.lastCheckedAt){
+      var dt = new Date(r.lastCheckedAt);
+      var d1 = document.createElement("div"); d1.textContent = dt.toLocaleDateString("en-IN", {day:"2-digit", month:"short"});
+      var d2 = document.createElement("div"); d2.className = "cell-sub"; d2.textContent = dt.toLocaleTimeString("en-IN", {hour:"numeric", minute:"2-digit"});
+      tdWhen.appendChild(d1); tdWhen.appendChild(d2);
+      tdWhen.title = dt.toLocaleString("en-IN");
+    } else {
+      tdWhen.textContent = "—";
+    }
     [tdAwb, tdName, tdPhone, tdState, tdStatus, tdCenter, tdWhen].forEach(function(td){ tr.appendChild(td); });
     tbody.appendChild(tr);
   });
