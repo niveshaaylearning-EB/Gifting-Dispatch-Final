@@ -6,9 +6,11 @@ table as the server (see db.ps1 / .env). Needs PowerShell 7+:
   pwsh .\tracking-poller.ps1
 
 For every AWB in the tracking table that isn't yet marked delivered, and hasn't
-been checked in the last 30 minutes (or has never been checked), it calls
-Shree Anjani's own public tracking API - the same one shreeanjani.co.in/tracking
-itself calls - and records the latest status. Once an AWB's status name
+been checked in the last 30 minutes (or has never been checked), it looks the
+AWB up with its courier - Shree Anjani (public JSON API) or Shree Tirupati
+(their website's own AWB lookup) - and records the latest status. An AWB
+whose courier isn't known is tried against each supported courier; the one
+with a real booking is saved as its courier. Once an AWB's status name
 contains "DELIVER", it is never checked again - that's the explicit,
 permanent stopping point.
 
@@ -95,6 +97,18 @@ function Get-StatusStaleDays($statusName) {
     if ($nd -lt 0) { return $null }
     return [int]$nd
   }
+  # Shree Tirupati's format: "Return To SURAT-VESU On Dated 14-10-26" - dd-mm-yy.
+  $t = [regex]::Match($statusName, '(?i)\bon\s+dated\s+(\d{1,2})-(\d{1,2})-(\d{2}|\d{4})\b')
+  if ($t.Success) {
+    $yr = [int]$t.Groups[3].Value
+    if ($yr -lt 100) { $yr += 2000 }
+    try {
+      $d = [DateTime]::new($yr, [int]$t.Groups[2].Value, [int]$t.Groups[1].Value)
+    } catch { return $null }
+    $td = [math]::Floor(((Get-Date).Date - $d.Date).TotalDays)
+    if ($td -lt 0) { return $null }
+    return [int]$td
+  }
   $m = [regex]::Match($statusName, '(?i)\bon\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(\d{4}))?\b')
   if (-not $m.Success) { return $null }
   $day = [int]$m.Groups[1].Value
@@ -124,20 +138,28 @@ function Format-CenterContact($ownerName, $managerName) {
   return ($names -join " / ")
 }
 
-function Get-AwbStatus($awb) {
+# ---------------------------------------------------------------------------
+# One lookup function per courier. Each returns @{ ok; courier; statusName;
+# reasonName; fromCenter; toCenter; lastCenterName; lastCenterContact;
+# lastCenterMobile } on success, or @{ ok = $false; notFound; error }.
+# notFound = the courier answered but has no booking for this AWB, which is
+# what lets Get-AwbStatus fall through to the next courier.
+# ---------------------------------------------------------------------------
+
+# Shree Anjani: public JSON API, the same one shreeanjani.co.in/tracking uses.
+function Get-ShreeAnjaniStatus($awb) {
   $uri = "https://api-customer.shreeanjani.co.in/public/awb/$([System.Uri]::EscapeDataString($awb))"
   try {
     $resp = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 20
-    if (-not $resp.success -or -not $resp.data.booking) { return @{ ok = $false; error = "Not found in Shree Anjani's system - no booking for this AWB." } }
+    if (-not $resp.success -or -not $resp.data.booking) { return @{ ok = $false; notFound = $true; error = "No booking at Shree Anjani." } }
     $b = $resp.data.booking
-    # For an AWB Shree Anjani has never seen, the API still answers
-    # success:true with an all-blank booking (no status, no booking date).
-    # Treating that as a successful check saved an empty status, which the
-    # dashboard shows as "Not yet checked" forever - say what it really is.
-    if (-not $b.status_name -and -not $b.booking_date) { return @{ ok = $false; error = "Not found in Shree Anjani's system - no booking for this AWB (another courier's AWB, or a wrong number?)." } }
+    # For an AWB it has never seen, the API still answers success:true with
+    # an all-blank booking (no status, no booking date).
+    if (-not $b.status_name -and -not $b.booking_date) { return @{ ok = $false; notFound = $true; error = "No booking at Shree Anjani." } }
     $lc = $resp.data.last_center_details
     return @{
       ok = $true
+      courier = "shreeanjani"
       statusName = $b.status_name
       reasonName = $b.reason_name
       fromCenter = $b.from_center_name
@@ -147,11 +169,113 @@ function Get-AwbStatus($awb) {
       lastCenterMobile = $(if ($lc) { $(if ($lc.mobile) { $lc.mobile } else { $lc.phone_number }) } else { "" })
     }
   } catch {
-    # A malformed AWB (not 10-15 digits) comes back as HTTP 400 with the
-    # reason in the body - surface that instead of a bare "400 Bad Request".
-    if ($_.ErrorDetails.Message -match 'AWB must be') { return @{ ok = $false; error = "Invalid AWB number format - Shree Anjani AWBs are 10-15 digits." } }
-    return @{ ok = $false; error = $_.Exception.Message }
+    # A malformed AWB (not 10-15 digits) comes back as HTTP 400.
+    if ($_.ErrorDetails.Message -match 'AWB must be') { return @{ ok = $false; notFound = $true; error = "Not a valid Shree Anjani AWB (must be 10-15 digits)." } }
+    return @{ ok = $false; error = "Shree Anjani: $($_.Exception.Message)" }
   }
+}
+
+# Shree Tirupati (shreetirupaticourier.net): an ASP.NET site, no API. Exactly
+# what the "Enter AWB No. -> GO" box does: POST the docket number to
+# TopHeader.aspx, which redirects to Frm_DocList.aspx?docnos=<token> - the
+# token is the AWB encrypted by their server, so it can only be had this way.
+# Frm_DocTrackWeb.aspx?docno=<token> is the page with the actual details.
+# The form's hidden __VIEWSTATE/__EVENTVALIDATION are fetched once and
+# reused; they're refetched if a POST stops yielding a token.
+$TirupatiBase = "https://www.shreetirupaticourier.net"
+$TirupatiUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+$script:TirupatiForm = $null
+
+function Get-TirupatiFormFields {
+  $page = Invoke-WebRequest -Uri "$TirupatiBase/TopHeader.aspx" -UserAgent $TirupatiUA -UseBasicParsing -TimeoutSec 20
+  $f = ""
+  foreach ($n in "__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION") {
+    $v = [regex]::Match($page.Content, "id=""$n"" value=""([^""]*)""").Groups[1].Value
+    $f += "$n=$([uri]::EscapeDataString($v))&"
+  }
+  return $f
+}
+
+function Get-TirupatiToken($awb) {
+  foreach ($attempt in 1, 2) {
+    if (-not $script:TirupatiForm -or $attempt -eq 2) { $script:TirupatiForm = Get-TirupatiFormFields }
+    $body = $script:TirupatiForm + "trackingno=$awb&btnTrack=Go&networksearch="
+    $r = Invoke-WebRequest -Uri "$TirupatiBase/TopHeader.aspx" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" `
+      -UserAgent $TirupatiUA -Headers @{ Referer = "$TirupatiBase/"; Origin = $TirupatiBase } `
+      -MaximumRedirection 0 -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing -TimeoutSec 20
+    $tok = [regex]::Match("$($r.Headers.Location)", "docnos=([^&]+)").Groups[1].Value
+    if ($tok) { return $tok }
+  }
+  return $null
+}
+
+function Get-TirupatiField($html, $id) {
+  $m = [regex]::Match($html, "id=""$id""[^>]*>(.*?)</(span|td|div)>", "Singleline,IgnoreCase")
+  if (-not $m.Success) { return "" }
+  $t = [regex]::Replace($m.Groups[1].Value, "<[^>]+>", " ")
+  return ([System.Net.WebUtility]::HtmlDecode($t) -replace "\s+", " ").Trim()
+}
+
+function Get-TirupatiStatus($awb) {
+  # The site itself only accepts 12-digit docket numbers.
+  if ($awb -notmatch '^\d{12}$') { return @{ ok = $false; notFound = $true; error = "Not a valid Shree Tirupati AWB (must be 12 digits)." } }
+  try {
+    $tok = Get-TirupatiToken $awb
+    if (-not $tok) { return @{ ok = $false; error = "Shree Tirupati: their site didn't return a tracking page for this AWB." } }
+    $d = Invoke-WebRequest -Uri "$TirupatiBase/Frm_DocTrackWeb.aspx?docno=$tok" -UserAgent $TirupatiUA `
+      -MaximumRedirection 0 -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing -TimeoutSec 20
+    $h = "$($d.Content)"
+    $from = Get-TirupatiField $h "txtFromCenter"
+    $to = Get-TirupatiField $h "txtToCenter"
+    $bookedOn = Get-TirupatiField $h "txtDate"
+    $rawStatus = Get-TirupatiField $h "lblStatus"
+    # For an AWB it doesn't know, the site still shows a status line (it has
+    # been seen saying "Delivered"), but every booking field is blank - so a
+    # blank booking means not found, whatever the status line says.
+    if (-not $from -and -not $to -and -not $bookedOn) { return @{ ok = $false; notFound = $true; error = "No booking at Shree Tirupati." } }
+    # Status looks like "Delivered On Dated 05-10-26 By DELHI-RAJORI GARDEN (27)
+    # For Any Query, Contact To -- 9810907996 -- 011-45589978 -- ..." - split
+    # the contact tail off into its own field.
+    $parts = $rawStatus -split '\s*For Any Query,?\s*Contact To\s*', 2
+    $status = $parts[0].Trim()
+    $phones = if ($parts.Count -gt 1) { @(($parts[1] -split '--') | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique) -join ", " } else { "" }
+    $byCenter = [regex]::Match($status, '(?i)\bBy\s+(.+)$').Groups[1].Value.Trim()
+    return @{
+      ok = $true
+      courier = "tirupati"
+      statusName = $status
+      reasonName = ""
+      fromCenter = $from
+      toCenter = $to
+      lastCenterName = $(if ($byCenter) { $byCenter } else { $to })
+      lastCenterContact = ""
+      lastCenterMobile = $phones
+    }
+  } catch {
+    return @{ ok = $false; error = "Shree Tirupati: $($_.Exception.Message)" }
+  }
+}
+
+$CourierLookups = [ordered]@{
+  shreeanjani = { param($a) Get-ShreeAnjaniStatus $a }
+  tirupati    = { param($a) Get-TirupatiStatus $a }
+}
+
+# Uses the AWB's own courier when the upload said which one it is (or an
+# earlier check already found it). Otherwise asks each supported courier in
+# turn and keeps the first one that has a real booking - the result carries
+# .courier, which is saved, so later checks go straight there. A network
+# error from a courier stops the search for this cycle rather than wrongly
+# falling through to "not found".
+function Get-AwbStatus($awb, $courier) {
+  if ($courier -and $CourierLookups.Contains($courier)) { return (& $CourierLookups[$courier] $awb) }
+  # Tirupati dockets are 12 digits; try that one first for those.
+  $order = if ($awb -match '^\d{12}$') { @("tirupati", "shreeanjani") } else { @("shreeanjani", "tirupati") }
+  foreach ($c in $order) {
+    $r = & $CourierLookups[$c] $awb
+    if ($r.ok -or -not $r.notFound) { return $r }
+  }
+  return @{ ok = $false; notFound = $true; error = "Not found at any supported courier (Shree Anjani, Shree Tirupati) - wrong AWB, or a courier the dashboard doesn't track yet." }
 }
 
 Write-Host "Tracking poller started. Watching the tracking table in $dbLocation every $LoopSleepSeconds seconds, refreshing each AWB roughly every $CheckIntervalHours hours until delivered."
@@ -202,9 +326,10 @@ while ($true) {
      try {
       $rec = $tracking[$awb]
       $wasAlreadyDelivered = Test-Delivered $rec.statusName
-      $result = Get-AwbStatus $awb
+      $result = Get-AwbStatus $awb $rec.courier
       $rec.lastCheckedAt = $now
       if ($result.ok) {
+        $rec.courier = $result.courier
         $rec.statusName = $result.statusName
         $rec.reasonName = $result.reasonName
         $rec.fromCenter = $result.fromCenter

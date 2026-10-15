@@ -474,7 +474,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
   <section class="tabpanel" id="tabpanel-tracking" data-tabpanel="tracking" hidden>
     <div class="card">
       <h2>Live Tracking Status</h2>
-      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Import an Excel file with Tracking ID / AWB No, Name, State/Location, and (if present) a Phone/Mobile column &mdash; any other columns (shipping address, pincode, courier, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
+      <div class="sub">Courier delivery status for each AWB, checked automatically roughly every 30 minutes until a shipment is delivered &mdash; once delivered, it's never checked again. Couriers tracked: Shree Anjani and Shree Tirupati &mdash; if the sheet has a Courier column it's used, otherwise each AWB's courier is identified automatically. Import an Excel file with a Tracking ID / AWB / Docket No. column (required) plus Name, State/Location, Phone and Courier where present &mdash; any other columns (shipping address, pincode, dimensions, weight, charge, etc.) are ignored. A row whose name matches someone already tracked under a different AWB is held for your confirmation before it's added.</div>
       <div class="row">
         <input type="file" id="trackingFileInput" accept=".xlsx,.xls" hidden>
         <button class="primary small" id="trackingImportBtn">Import Excel file</button>
@@ -490,7 +490,7 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
           <option value="pending">Not yet checked</option>
           <option value="progress">Booked / in transit / out for delivery</option>
           <option value="delivered">Delivered</option>
-          <option value="notfound">Not found at Shree Anjani</option>
+          <option value="notfound">Not found at courier</option>
           <option value="error">Check failed</option>
         </select>
       </div>
@@ -2017,9 +2017,11 @@ function renderDispatchTab(){
 // checked before that wording existed has a lastCheckedAt but a blank
 // status and no error, which means the same thing. "pending" is strictly
 // never checked at all.
+var COURIER_LABELS = { shreeanjani: "Shree Anjani", tirupati: "Shree Tirupati" };
+function courierLabel(key){ return COURIER_LABELS[key] || "Courier not identified yet"; }
 function trackingStatusGroup(r){
   if(r.delivered){ return "delivered"; }
-  if(r.lastError && /^(Not found in Shree Anjani|Invalid AWB)/.test(r.lastError)){ return "notfound"; }
+  if(r.lastError && /^(Not found|No booking at|Not a valid|Invalid AWB)/.test(r.lastError)){ return "notfound"; }
   if(r.lastError){ return "error"; }
   if(!r.lastCheckedAt){ return "pending"; }
   if(!r.statusName){ return "notfound"; }
@@ -2028,7 +2030,7 @@ function trackingStatusGroup(r){
 function trackingStatusLabel(r){
   var g = trackingStatusGroup(r);
   if(g === "delivered"){ return r.statusName || "Delivered"; }
-  if(g === "notfound"){ return "Not found at Shree Anjani"; }
+  if(g === "notfound"){ return "Not found at courier"; }
   if(g === "error"){ return "Check failed"; }
   if(g === "pending"){ return "Not yet checked"; }
   return r.statusName || "In progress";
@@ -2130,7 +2132,7 @@ function renderTrackingStatCards(){
   });
   makeCard("Delivered", byGroup.delivered || 0, "c-good", groupFilter === "delivered", function(){ selectGroup("delivered"); });
   if(byGroup.notfound){
-    makeCard("Not found at Shree Anjani", byGroup.notfound, "c-bad", groupFilter === "notfound", function(){ selectGroup("notfound"); });
+    makeCard("Not found at courier", byGroup.notfound, "c-bad", groupFilter === "notfound", function(){ selectGroup("notfound"); });
   }
   makeCard("Check failed", byGroup.error || 0, "c-bad", groupFilter === "error", function(){ selectGroup("error"); });
 }
@@ -2143,7 +2145,7 @@ function renderTrackingTab(){
     if(statusFilter && trackingStatusGroup(r) !== statusFilter){ return false; }
     if(!matchesColFilters(r, trackingColFilters, TRACKING_COL_VALUE_ACCESSORS)){ return false; }
     if(!q){ return true; }
-    return [r.awb, r.name, r.phone, r.state].some(function(v){ return (v || "").toLowerCase().indexOf(q) !== -1; });
+    return [r.awb, r.name, r.phone, r.state, courierLabel(r.courier)].some(function(v){ return (v || "").toLowerCase().indexOf(q) !== -1; });
   });
   var sortAcc = TRACKING_SORT_ACCESSORS[trackingSortState.key] || TRACKING_SORT_ACCESSORS.name;
   rows.sort(function(a,b){
@@ -2165,7 +2167,11 @@ function renderTrackingTab(){
 
   rows.forEach(function(r){
     var tr = document.createElement("tr");
-    var tdAwb = document.createElement("td"); tdAwb.className = "mono"; tdAwb.textContent = r.awb || "—";
+    var tdAwb = document.createElement("td");
+    var awbLine = document.createElement("div"); awbLine.className = "mono"; awbLine.textContent = r.awb || "—";
+    var courierLine = document.createElement("div"); courierLine.className = "qr-url"; courierLine.style.maxWidth = "none";
+    courierLine.textContent = courierLabel(r.courier);
+    tdAwb.appendChild(awbLine); tdAwb.appendChild(courierLine);
     var tdName = document.createElement("td"); tdName.textContent = r.name || "—";
     var tdPhone = document.createElement("td"); tdPhone.className = "mono"; tdPhone.textContent = r.phone || "—";
     var tdState = document.createElement("td"); tdState.textContent = r.state || "—";
@@ -2304,23 +2310,40 @@ $("trackingFileInput").addEventListener("change", function(e){
       // courier export sheets often carry several columns (shipping city/
       // state/pincode, courier, dimensions, weight, charge) that aren't
       // relevant here; they're simply never matched by any keyword below.
-      function findCol(kws){
-        for(var i=0;i<headers.length;i++){ if(kws.indexOf(headers[i]) !== -1){ return i; } }
-        for(var i=0;i<headers.length;i++){ if(kws.some(function(k){ return headers[i].indexOf(k) !== -1; })){ return i; } }
+      // skip: headers that must never be taken for this field even though
+      // they contain one of its keywords (e.g. "Courier Name" isn't the
+      // recipient's name).
+      function findCol(kws, skip){
+        function ok(h){ return !(skip && skip.some(function(s){ return h.indexOf(s) !== -1; })); }
+        for(var i=0;i<headers.length;i++){ if(ok(headers[i]) && kws.indexOf(headers[i]) !== -1){ return i; } }
+        for(var i=0;i<headers.length;i++){ if(ok(headers[i]) && kws.some(function(k){ return headers[i].indexOf(k) !== -1; })){ return i; } }
         return -1;
       }
-      var awbCol = findCol(["tracking id","awb","docket"]);
-      var nameCol = findCol(["name"]);
+      // Only the tracking ID is required - name, state, phone and courier are
+      // picked up when the sheet has them and left blank when it doesn't.
+      var awbCol = findCol(["tracking id","awb","docket","doc no","document no","consignment no","tracking no"]);
+      var nameCol = findCol(["name","consignee","receiver","recipient"], ["courier","company","agency"]);
       var stateCol = findCol(["state","location"]);
       var phoneCol = findCol(["phone","mobile","contact"]);
-      if(awbCol === -1 || nameCol === -1 || stateCol === -1){
-        toast("Couldn't find Tracking ID / Name / State columns in that file's header row.");
+      var courierCol = findCol(["courier","agency","carrier"]);
+      if(awbCol === -1){
+        toast("Couldn't find a Tracking ID / AWB / Docket No. column in that file's header row.");
         return;
       }
+      // Map whatever the sheet calls the courier onto the ones the poller
+      // can check; anything else is left blank and the poller identifies it
+      // itself by asking each supported courier.
+      function courierKey(v){
+        var t = normSpace(v).toLowerCase();
+        if(t.indexOf("tirupati") !== -1){ return "tirupati"; }
+        if(t.indexOf("anjani") !== -1){ return "shreeanjani"; }
+        return "";
+      }
+      function cell(r, col){ return col === -1 ? "" : normSpace(r[col]); }
       var rows = rawRows.slice(1).map(function(r){
         return {
-          awb: normSpace(r[awbCol]), name: normSpace(r[nameCol]), state: normSpace(r[stateCol]),
-          phone: phoneCol === -1 ? "" : normSpace(r[phoneCol])
+          awb: cell(r, awbCol), name: cell(r, nameCol), state: cell(r, stateCol),
+          phone: cell(r, phoneCol), courier: courierCol === -1 ? "" : courierKey(r[courierCol])
         };
       }).filter(function(r){ return r.awb; });
       if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }

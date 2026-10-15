@@ -1081,7 +1081,11 @@ while ($listener.IsListening) {
       foreach ($row in @($body.rows)) {
         $awb = ("" + $row.awb).Trim()
         if (-not $awb) { continue }
-        $rows += @{ awb = $awb; name = ("" + $row.name).Trim(); phone = ("" + $row.phone).Trim(); state = ("" + $row.state).Trim() }
+        # Only couriers the poller knows how to check; anything else is left
+        # blank so the poller works it out by asking each supported courier.
+        $courier = ("" + $row.courier).Trim().ToLowerInvariant()
+        if ($courier -notin @("shreeanjani", "tirupati")) { $courier = "" }
+        $rows += @{ awb = $awb; name = ("" + $row.name).Trim(); phone = ("" + $row.phone).Trim(); state = ("" + $row.state).Trim(); courier = $courier }
       }
       $result = Import-DbTrackingRows $rows
       Send-Json $response @{ ok = $true; added = $result.added; updated = $result.updated }

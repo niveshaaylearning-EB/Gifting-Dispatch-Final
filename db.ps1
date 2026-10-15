@@ -208,6 +208,9 @@ ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS phone text DEFAULT ''
 -- Set by the dashboard's "Refresh now" / post-import check; the poller treats
 -- such a row as due immediately and clears it once checked.
 ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS check_requested_at timestamptz;
+-- Which courier the AWB belongs to ('shreeanjani', 'tirupati', ...). Blank =
+-- not known yet; the poller tries each supported courier and fills it in.
+ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS courier text DEFAULT '';
 '@
 
 function Initialize-Db {
@@ -509,7 +512,7 @@ function Remove-DbClientCategory($category) {
 # Courier tracking (AWBs). Column aliases keep the same camelCase field names
 # the dashboard's Live Tracking Status tab already reads.
 # ---------------------------------------------------------------------------
-$script:TrackingColumns = 'awb, name, phone, state, status_name AS "statusName", reason_name AS "reasonName", from_center AS "fromCenter", to_center AS "toCenter", ' +
+$script:TrackingColumns = 'awb, name, phone, state, courier, status_name AS "statusName", reason_name AS "reasonName", from_center AS "fromCenter", to_center AS "toCenter", ' +
   'last_center_name AS "lastCenterName", last_center_contact AS "lastCenterContact", last_center_mobile AS "lastCenterMobile", ' +
   'delivered, last_checked_at AS "lastCheckedAt", last_error AS "lastError", center_check_attempted AS "centerCheckAttempted", ' +
   '(check_requested_at IS NOT NULL) AS "checkRequested"'
@@ -533,13 +536,16 @@ function Import-DbTrackingRows($rows) {
   $repeats = 0
   foreach ($r in $rows) {
     if ($byAwb.Contains($r.awb)) { $repeats++ }
-    $byAwb[$r.awb] = @{ awb = $r.awb; name = $r.name; phone = $r.phone; state = $r.state }
+    $byAwb[$r.awb] = @{ awb = $r.awb; name = $r.name; phone = $r.phone; state = $r.state; courier = $r.courier }
   }
   if ($byAwb.Count -eq 0) { return @{ added = 0; updated = 0 } }
+  # A re-import without a courier column must not wipe a courier that an
+  # earlier import or check already established.
   $result = Invoke-DbQuery @"
-INSERT INTO tracking (awb, name, phone, state)
-SELECT r.awb, r.name, r.phone, r.state FROM jsonb_to_recordset(@rows::jsonb) AS r(awb text, name text, phone text, state text)
-ON CONFLICT (awb) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, state = EXCLUDED.state, updated_at = now()
+INSERT INTO tracking (awb, name, phone, state, courier)
+SELECT r.awb, r.name, r.phone, r.state, COALESCE(r.courier, '') FROM jsonb_to_recordset(@rows::jsonb) AS r(awb text, name text, phone text, state text, courier text)
+ON CONFLICT (awb) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, state = EXCLUDED.state,
+  courier = COALESCE(NULLIF(EXCLUDED.courier, ''), tracking.courier), updated_at = now()
 RETURNING (xmax = 0) AS inserted
 "@ @{ rows = (ConvertTo-Json -InputObject @($byAwb.Values) -Depth 4 -Compress) }
   $added = @($result | Where-Object { $_.inserted }).Count
@@ -553,10 +559,12 @@ UPDATE tracking SET
   status_name = @statusName, reason_name = @reasonName, from_center = @fromCenter, to_center = @toCenter,
   last_center_name = @lastCenterName, last_center_contact = @lastCenterContact, last_center_mobile = @lastCenterMobile,
   delivered = @delivered, last_checked_at = @lastCheckedAt, last_error = @lastError,
-  center_check_attempted = @centerCheckAttempted, check_requested_at = NULL, updated_at = now()
+  center_check_attempted = @centerCheckAttempted, check_requested_at = NULL,
+  courier = COALESCE(NULLIF(@courier, ''), courier), updated_at = now()
 WHERE awb = @awb
 "@ @{
     awb = [string]$rec.awb
+    courier = [string]$rec.courier
     statusName = (ConvertTo-DbText $rec.statusName); reasonName = (ConvertTo-DbText $rec.reasonName)
     fromCenter = (ConvertTo-DbText $rec.fromCenter); toCenter = (ConvertTo-DbText $rec.toCenter)
     lastCenterName = (ConvertTo-DbText $rec.lastCenterName); lastCenterContact = (ConvertTo-DbText $rec.lastCenterContact)
