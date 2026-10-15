@@ -494,11 +494,13 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
         <input type="search" id="trackingSearchBox" placeholder="Search AWB, name, phone, state&hellip;" style="flex:1 1 220px;">
         <select id="trackingStatusFilter">
           <option value="">All statuses</option>
-          <option value="pending">Not yet checked</option>
-          <option value="progress">Booked / in transit / out for delivery</option>
           <option value="delivered">Delivered</option>
+          <option value="transit">In Transit</option>
           <option value="notfound">Not found at courier</option>
-          <option value="error">Check failed</option>
+          <option value="other">Others</option>
+        </select>
+        <select id="trackingOtherFilter" title="Pick one kind of status inside Others">
+          <option value="">Others: all</option>
         </select>
       </div>
     </div>
@@ -2079,29 +2081,61 @@ async function loadTracking(){
   }catch(err){ toast("Couldn't load tracking data: " + err.message); }
 }
 
-// Cards reflect whatever distinct statuses actually exist in the data right
-// now - "Delivered" and "Check failed" are always their own cards, and every
-// other real statusName the courier has reported (in transit, out for
-// delivery, booked, etc.) gets its own card too, rather than guessing a
-// fixed list of names that might not match what the courier's API actually
-// sends back.
+// Four headline buckets for the cards: Delivered, In Transit (moving forward
+// normally - booked, in transit, out for delivery, received at / reached a
+// hub), Not found at courier, and Others (everything else: party not
+// available, return to origin, returned / delivered back to seller, closed,
+// address changed, not yet checked, check failed...).
+var TRANSIT_STATUS_RE = /^\s*(IN[ _-]?TRANSIT|OUT[ _]FOR[ _]DELIVERY|OUT TO\b|BOOKED|RECEIVED AT|REACHED|PENDING|DISPATCHED|PICKED|MANIFESTED|SHIPPED)/i;
+function trackingCategory(r){
+  var g = trackingStatusGroup(r);
+  if(g === "delivered" || g === "notfound"){ return g; }
+  if(g === "progress" && TRANSIT_STATUS_RE.test(r.statusName || "")){ return "transit"; }
+  return "other";
+}
+// The status with its date/time tail removed, so e.g. every "Return To
+// SURAT-VESU On Dated 03-10-26 / 05-10-26 / 14-10-26" lands under one
+// "Return To SURAT-VESU" option in the Others dropdown.
+function trackingOtherKey(r){
+  var g = trackingStatusGroup(r);
+  if(g === "pending"){ return "Not yet checked"; }
+  if(g === "error"){ return "Check failed"; }
+  var s = normSpace(r.statusName || "");
+  s = s.replace(/\s+(On\s+)?Dated\s+[\d\/-]+.*$/i, "").replace(/\s+ON\s+\d{1,2}\/\d{1,2}\/\d{4}.*$/i, "");
+  if(/^DELIVERED_SELLER\b/i.test(s)){ return "Returned - delivered back to seller"; }
+  if(/^RETURNED\b/i.test(s)){ return "Returned"; }
+  return s || "Unknown status";
+}
+
 function renderTrackingStatCards(){
   var host = $("trackingStatCards");
   if(!host) return;
   host.innerHTML = "";
-  var byGroup = { pending: 0, delivered: 0, error: 0, notfound: 0 };
-  var progressByLabel = {};
+  var counts = { delivered: 0, transit: 0, notfound: 0, other: 0 };
+  var otherCounts = {};
   state.tracking.forEach(function(r){
-    var g = trackingStatusGroup(r);
-    if(g === "progress"){
-      var label = trackingStatusLabel(r);
-      progressByLabel[label] = (progressByLabel[label] || 0) + 1;
-    } else {
-      byGroup[g] = (byGroup[g] || 0) + 1;
-    }
+    var c = trackingCategory(r);
+    counts[c]++;
+    if(c === "other"){ var k = trackingOtherKey(r); otherCounts[k] = (otherCounts[k] || 0) + 1; }
   });
-  var groupFilter = $("trackingStatusFilter").value;
-  var labelFilter = (trackingColFilters.status && trackingColFilters.status.size === 1) ? Array.from(trackingColFilters.status)[0] : null;
+  var catFilter = $("trackingStatusFilter").value;
+
+  // Others dropdown: one option per kind of "other" status, biggest first.
+  var sel = $("trackingOtherFilter");
+  var keys = Object.keys(otherCounts).sort(function(a,b){ return otherCounts[b] - otherCounts[a] || a.localeCompare(b); });
+  var sig = keys.map(function(k){ return k + ":" + otherCounts[k]; }).join("|") + "|" + counts.other;
+  if(sel.dataset.built !== sig){
+    var current = sel.value;
+    sel.innerHTML = "";
+    var all = document.createElement("option"); all.value = ""; all.textContent = "Others: all (" + counts.other + ")";
+    sel.appendChild(all);
+    keys.forEach(function(k){
+      var o = document.createElement("option"); o.value = k; o.textContent = k + " (" + otherCounts[k] + ")";
+      sel.appendChild(o);
+    });
+    sel.dataset.built = sig;
+    sel.value = otherCounts[current] ? current : "";
+  }
 
   function makeCard(label, count, colorClass, isActive, onClick){
     var btn = document.createElement("button");
@@ -2113,43 +2147,27 @@ function renderTrackingStatCards(){
     btn.addEventListener("click", onClick);
     host.appendChild(btn);
   }
-  // Mutates the existing trackingColFilters object in place rather than
-  // reassigning it - wireColFilterButtons captured a reference to this same
-  // object when the page loaded, so replacing it outright would silently
-  // desync the column-filter (&#9662;) popover from what the cards show.
-  function clearTrackingColFilters(){
-    Object.keys(trackingColFilters).forEach(function(k){ delete trackingColFilters[k]; });
-  }
-  function selectGroup(g){
-    $("trackingStatusFilter").value = g;
-    clearTrackingColFilters();
-    renderTrackingTab();
-  }
-  function selectLabel(label){
-    $("trackingStatusFilter").value = "";
-    clearTrackingColFilters();
-    trackingColFilters.status = new Set([label]);
+  // Clicking the active card again clears the filter (back to all AWBs).
+  function selectCategory(c){
+    $("trackingStatusFilter").value = (catFilter === c) ? "" : c;
+    $("trackingOtherFilter").value = "";
     renderTrackingTab();
   }
 
-  makeCard("Total AWBs", state.tracking.length, "c-accent", !groupFilter && !labelFilter, function(){ selectGroup(""); });
-  makeCard("Not yet checked", byGroup.pending || 0, "", groupFilter === "pending", function(){ selectGroup("pending"); });
-  Object.keys(progressByLabel).sort(function(a,b){ return progressByLabel[b] - progressByLabel[a]; }).forEach(function(label){
-    makeCard(label, progressByLabel[label], "c-warn", !groupFilter && labelFilter === label, function(){ selectLabel(label); });
-  });
-  makeCard("Delivered", byGroup.delivered || 0, "c-good", groupFilter === "delivered", function(){ selectGroup("delivered"); });
-  if(byGroup.notfound){
-    makeCard("Not found at courier", byGroup.notfound, "c-bad", groupFilter === "notfound", function(){ selectGroup("notfound"); });
-  }
-  makeCard("Check failed", byGroup.error || 0, "c-bad", groupFilter === "error", function(){ selectGroup("error"); });
+  makeCard("Delivered", counts.delivered, "c-good", catFilter === "delivered", function(){ selectCategory("delivered"); });
+  makeCard("In Transit", counts.transit, "c-warn", catFilter === "transit", function(){ selectCategory("transit"); });
+  makeCard("Not found at courier", counts.notfound, "c-bad", catFilter === "notfound", function(){ selectCategory("notfound"); });
+  makeCard("Others", counts.other, "c-accent", catFilter === "other", function(){ selectCategory("other"); });
 }
 
 function renderTrackingTab(){
   renderTrackingStatCards();
   var q = normSpace($("trackingSearchBox").value).toLowerCase();
   var statusFilter = $("trackingStatusFilter").value;
+  var otherFilter = $("trackingOtherFilter").value;
   var rows = state.tracking.filter(function(r){
-    if(statusFilter && trackingStatusGroup(r) !== statusFilter){ return false; }
+    if(statusFilter && trackingCategory(r) !== statusFilter){ return false; }
+    if(otherFilter && (trackingCategory(r) !== "other" || trackingOtherKey(r) !== otherFilter)){ return false; }
     if(!matchesColFilters(r, trackingColFilters, TRACKING_COL_VALUE_ACCESSORS)){ return false; }
     if(!q){ return true; }
     return [r.awb, r.name, r.phone, r.state, courierLabel(r.courier)].some(function(v){ return (v || "").toLowerCase().indexOf(q) !== -1; });
@@ -2205,7 +2223,15 @@ function renderTrackingTab(){
 }
 
 $("trackingSearchBox").addEventListener("input", renderTrackingTab);
-$("trackingStatusFilter").addEventListener("change", renderTrackingTab);
+$("trackingStatusFilter").addEventListener("change", function(){
+  if($("trackingStatusFilter").value !== "other"){ $("trackingOtherFilter").value = ""; }
+  renderTrackingTab();
+});
+// Picking a specific "other" status implies the Others bucket.
+$("trackingOtherFilter").addEventListener("change", function(){
+  if($("trackingOtherFilter").value){ $("trackingStatusFilter").value = "other"; }
+  renderTrackingTab();
+});
 
 function trackingNameKey(s){ return normSpace(s).toLowerCase(); }
 
