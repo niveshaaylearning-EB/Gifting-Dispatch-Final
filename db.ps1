@@ -211,6 +211,20 @@ ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS check_requested_at ti
 -- Which courier the AWB belongs to ('shreeanjani', 'tirupati', ...). Blank =
 -- not known yet; the poller tries each supported courier and fills it in.
 ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS courier text DEFAULT '';
+
+-- One row per file imported into Live Tracking (Upload History). Each AWB
+-- remembers the upload it last came in with; deleting an upload deletes
+-- the AWBs still attached to it.
+CREATE TABLE IF NOT EXISTS "__SCHEMA__".tracking_uploads (
+  id           bigserial   PRIMARY KEY,
+  file_name    text        NOT NULL DEFAULT '',
+  courier      text        NOT NULL DEFAULT '',
+  uploaded_by  text        NOT NULL DEFAULT '',
+  uploaded_at  timestamptz NOT NULL DEFAULT now(),
+  row_count    integer     NOT NULL DEFAULT 0
+);
+ALTER TABLE "__SCHEMA__".tracking ADD COLUMN IF NOT EXISTS upload_id bigint;
+CREATE INDEX IF NOT EXISTS tracking_upload_id_idx ON "__SCHEMA__".tracking (upload_id);
 '@
 
 function Initialize-Db {
@@ -531,7 +545,40 @@ function Get-DbTrackingRecord($awb) {
 # Adds new AWBs and updates name/state on ones already there. Returns
 # @{ added; updated } - a repeat of the same AWB later in the same file
 # counts as an update, as it always has.
-function Import-DbTrackingRows($rows) {
+# Upload History. A file imported in two steps (rows with no clash first,
+# approved repeats afterwards) reuses one upload record via $uploadId.
+function New-DbTrackingUpload($fileName, $courier, $user) {
+  return [long](Invoke-DbScalar "INSERT INTO tracking_uploads (file_name, courier, uploaded_by) VALUES (@f, @c, @u) RETURNING id" @{ f = [string]$fileName; c = [string]$courier; u = [string]$user })
+}
+
+function Test-DbTrackingUpload($id) {
+  return [bool](Invoke-DbScalar "SELECT EXISTS (SELECT 1 FROM tracking_uploads WHERE id = @id)" @{ id = [long]$id })
+}
+
+function Add-DbTrackingUploadCount($id, [int]$n) {
+  [void](Invoke-DbNonQuery "UPDATE tracking_uploads SET row_count = row_count + @n WHERE id = @id" @{ id = [long]$id; n = $n })
+}
+
+# Most recent first; current = AWBs still attached to it (an AWB re-imported
+# later belongs to that later upload instead).
+function Get-DbTrackingUploads {
+  return (Invoke-DbQuery @"
+SELECT u.id, u.file_name AS "fileName", u.courier, u.uploaded_by AS "uploadedBy",
+  (extract(epoch FROM u.uploaded_at) * 1000)::bigint AS "uploadedAt", u.row_count AS "rowCount",
+  (SELECT count(*) FROM tracking t WHERE t.upload_id = u.id) AS "current"
+FROM tracking_uploads u ORDER BY u.uploaded_at DESC, u.id DESC LIMIT 100
+"@)
+}
+
+# Deletes the upload and every AWB still attached to it. Returns how many
+# AWBs were removed.
+function Remove-DbTrackingUpload($id) {
+  $n = Invoke-DbNonQuery "DELETE FROM tracking WHERE upload_id = @id" @{ id = [long]$id }
+  [void](Invoke-DbNonQuery "DELETE FROM tracking_uploads WHERE id = @id" @{ id = [long]$id })
+  return $n
+}
+
+function Import-DbTrackingRows($rows, $uploadId = $null) {
   $byAwb = [ordered]@{}
   $repeats = 0
   foreach ($r in $rows) {
@@ -542,12 +589,13 @@ function Import-DbTrackingRows($rows) {
   # A re-import without a courier column must not wipe a courier that an
   # earlier import or check already established.
   $result = Invoke-DbQuery @"
-INSERT INTO tracking (awb, name, phone, state, courier)
-SELECT r.awb, r.name, r.phone, r.state, COALESCE(r.courier, '') FROM jsonb_to_recordset(@rows::jsonb) AS r(awb text, name text, phone text, state text, courier text)
+INSERT INTO tracking (awb, name, phone, state, courier, upload_id)
+SELECT r.awb, r.name, r.phone, r.state, COALESCE(r.courier, ''), @uploadId::bigint FROM jsonb_to_recordset(@rows::jsonb) AS r(awb text, name text, phone text, state text, courier text)
 ON CONFLICT (awb) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, state = EXCLUDED.state,
-  courier = COALESCE(NULLIF(EXCLUDED.courier, ''), tracking.courier), updated_at = now()
+  courier = COALESCE(NULLIF(EXCLUDED.courier, ''), tracking.courier),
+  upload_id = COALESCE(EXCLUDED.upload_id, tracking.upload_id), updated_at = now()
 RETURNING (xmax = 0) AS inserted
-"@ @{ rows = (ConvertTo-Json -InputObject @($byAwb.Values) -Depth 4 -Compress) }
+"@ @{ rows = (ConvertTo-Json -InputObject @($byAwb.Values) -Depth 4 -Compress); uploadId = $(if ($uploadId) { [long]$uploadId } else { $null }) }
   $added = @($result | Where-Object { $_.inserted }).Count
   return @{ added = $added; updated = ($result.Count - $added) + $repeats }
 }

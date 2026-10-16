@@ -1089,8 +1089,29 @@ while ($listener.IsListening) {
         if ($courier -notin @("shreeanjani", "tirupati", "delhivery")) { $courier = "" }
         $rows += @{ awb = $awb; name = ("" + $row.name).Trim(); phone = ("" + $row.phone).Trim(); state = ("" + $row.state).Trim(); courier = $courier }
       }
-      $result = Import-DbTrackingRows $rows
-      Send-Json $response @{ ok = $true; added = $result.added; updated = $result.updated }
+      # Each imported file gets an Upload History record. A second call for
+      # the same file (approved repeats, after the rest went in) passes back
+      # the uploadId it got the first time.
+      $uploadId = $null
+      if ($rows.Count -gt 0) {
+        $given = 0L
+        if ($body.uploadId -and [long]::TryParse("$($body.uploadId)", [ref]$given) -and (Test-DbTrackingUpload $given)) { $uploadId = $given }
+        else {
+          $fileName = ("" + $body.fileName).Trim()
+          if ($fileName.Length -gt 200) { $fileName = $fileName.Substring(0, 200) }
+          $uploadId = New-DbTrackingUpload $fileName ("" + $rows[0].courier) $sessionUser.username
+        }
+      }
+      $result = Import-DbTrackingRows $rows $uploadId
+      if ($uploadId) { Add-DbTrackingUploadCount $uploadId ($result.added + $result.updated) }
+      Send-Json $response @{ ok = $true; added = $result.added; updated = $result.updated; uploadId = $uploadId }
+    }
+    elseif ($method -eq "GET" -and $path -eq "/api/tracking/uploads") {
+      Send-Json $response @(Get-DbTrackingUploads)
+    }
+    elseif ($method -eq "DELETE" -and $path -match '^/api/tracking/uploads/(\d+)$') {
+      $removed = Remove-DbTrackingUpload ([long]$Matches[1])
+      Send-Json $response @{ ok = $true; removed = $removed }
     }
     elseif ($method -eq "POST" -and $path -eq "/api/tracking/refresh") {
       # Queues a check instead of doing it here: the given AWBs (e.g. a batch

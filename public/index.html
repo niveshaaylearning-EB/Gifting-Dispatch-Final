@@ -121,6 +121,9 @@ button.small{padding:5px 10px; font-size:12px; min-height:30px;}
 .import-review-row{background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:8px;}
 .import-review-check{display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:13px;}
 .import-review-check input{margin-top:3px;}
+.uploads-table{table-layout:fixed; min-width:640px; font-size:12.5px;}
+.uploads-table tbody td{vertical-align:middle; overflow-wrap:break-word; cursor:default;}
+.uploads-table tbody tr{cursor:default;}
 .pdf-preview-list{max-height:360px; overflow:auto; margin-top:8px; border:1px solid var(--border); border-radius:8px; background:var(--surface);}
 .pdf-preview-table{min-width:0; width:100%; font-size:12.5px;}
 .pdf-preview-table thead th{position:sticky; top:0;}
@@ -544,6 +547,19 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
         <tbody id="trackingTbody"></tbody>
       </table>
       <div class="empty" id="trackingEmpty">No tracking records yet &mdash; import an Excel or PDF file to get started.</div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h2>Upload History</h2>
+      <div class="sub">Files imported into Live Tracking, most recent first. Delete removes that file and every AWB from it that's still on the dashboard. An AWB uploaded again in a later file belongs to that later file. Files imported before this history existed aren't listed.</div>
+      <div class="tablewrap">
+        <table id="trackingUploadsTable" class="uploads-table">
+          <colgroup><col style="width:32%"><col style="width:15%"><col style="width:16%"><col style="width:13%"><col style="width:9%"><col style="width:15%"></colgroup>
+          <thead><tr><th>File</th><th>Courier</th><th>Uploaded</th><th>By</th><th>AWBs</th><th></th></tr></thead>
+          <tbody id="trackingUploadsBody"></tbody>
+        </table>
+        <div class="empty" id="trackingUploadsEmpty">No uploads recorded yet.</div>
+      </div>
     </div>
   </section>
 
@@ -2102,6 +2118,7 @@ async function loadTracking(){
     state.tracking = data || [];
     $("trackingCount").textContent = state.tracking.length;
     renderTrackingTab();
+    loadTrackingUploads();
   }catch(err){ toast("Couldn't load tracking data: " + err.message); }
 }
 
@@ -2287,37 +2304,48 @@ function checkAwbsNow(awbList){
     .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Couldn't queue the new AWBs for checking: " + err.message); });
 }
 
-// Actually sends rows to the server. Used both for a file with no name
-// clashes (straight through) and for whatever the review panel below ends
-// up confirming.
-function importTrackingRows(rows){
-  if(!rows.length){ toast("Nothing selected to import."); return Promise.resolve(); }
+// Sends rows to the server; resolves with the Upload History id they were
+// recorded under. uploadId is passed for the second half of a file (approved
+// repeats) so the whole file stays one history entry.
+function importTrackingRows(rows, fileName, uploadId){
+  if(!rows.length){ return Promise.resolve(uploadId || null); }
   $("trackingImportHint").textContent = "Importing " + rows.length + " row(s)…";
-  return api("/api/tracking/import", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({rows: rows})})
+  return api("/api/tracking/import", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rows: rows, fileName: fileName || "", uploadId: uploadId || null})})
     .then(function(res){
       toast("Imported: " + res.added + " new, " + res.updated + " updated. Checking live status now…");
       loadTracking();
-      return checkAwbsNow(rows.map(function(r){ return r.awb; }));
+      checkAwbsNow(rows.map(function(r){ return r.awb; }));
+      return res.uploadId || uploadId || null;
     })
     .catch(function(err){ $("trackingImportHint").textContent = ""; toast("Import failed: " + err.message); throw err; });
 }
 
-// A row whose name matches an existing tracking entry under a DIFFERENT AWB
-// is held here for a manual yes/no instead of being imported straight away -
-// same AWB is just an update to that same shipment, not a possible repeat.
-// The full Live Tracking Status table stays visible right below this panel
-// (nothing here hides it), so the existing data can be checked at the same
-// time as deciding on each flagged row.
-function openTrackingImportReview(fresh, flagged){
+// Rows that were uploaded before - the same AWB is already on the dashboard,
+// or the same name is already tracked under another AWB - are held here,
+// unticked, and only the ones ticked and confirmed are added (and then
+// checked automatically). The existing entry is shown under each so it can
+// be compared, and the full table stays visible below this panel.
+// freshDone resolves with the upload id of the file's other rows (already
+// imported), so approved ones join the same Upload History entry.
+function openTrackingImportReview(flagged, fileName, freshDone){
   var host = $("trackingImportReview");
   host.innerHTML = "";
   host.hidden = false;
 
+  var sameAwb = flagged.filter(function(f){ return f.reason === "awb"; }).length;
   var head = document.createElement("div"); head.className = "hint"; head.style.marginTop = "0";
-  head.textContent = flagged.length + " row(s) share a name with someone already being tracked (under a different AWB). Tick any that should still be imported as a separate entry" +
-    (fresh.length ? (", then Import - the other " + fresh.length + " row(s) with no name clash will be imported either way.") : ".");
+  head.textContent = flagged.length + " row(s) from " + (fileName || "this file") + " were uploaded before" +
+    (sameAwb ? " (" + sameAwb + " with the same AWB already on the dashboard, " + (flagged.length - sameAwb) + " with the same name under a different AWB)" : " (same name already tracked under a different AWB)") +
+    ". They are NOT added until you approve: tick the ones to include, then Approve & import. The rest of the file has been imported already.";
   host.appendChild(head);
 
+  var bar = document.createElement("div"); bar.className = "row"; bar.style.margin = "8px 0";
+  var allBtn = document.createElement("button"); allBtn.className = "ghost small"; allBtn.textContent = "Tick all";
+  var noneBtn = document.createElement("button"); noneBtn.className = "ghost small"; noneBtn.textContent = "Untick all";
+  bar.appendChild(allBtn); bar.appendChild(noneBtn); host.appendChild(bar);
+
+  var list = document.createElement("div"); list.className = "pdf-preview-list"; list.style.padding = "8px";
   var checks = [];
   flagged.forEach(function(f){
     var card = document.createElement("div"); card.className = "import-review-row";
@@ -2325,10 +2353,10 @@ function openTrackingImportReview(fresh, flagged){
     var cb = document.createElement("input"); cb.type = "checkbox";
     label.appendChild(cb);
     var newInfo = document.createElement("span");
-    var strong = document.createElement("strong"); strong.textContent = "New: ";
+    var strong = document.createElement("strong"); strong.textContent = (f.reason === "awb" ? "Same AWB uploaded again: " : "Same name, new AWB: ");
     newInfo.appendChild(strong);
     newInfo.appendChild(document.createTextNode(
-      [f.row.name || "(no name)", f.row.phone || "(no phone)", "AWB " + f.row.awb, f.row.state || "(no state)"].join(" · ")
+      [f.row.name || "(no name)", "AWB " + f.row.awb, f.row.state || "", f.row.phone || ""].filter(function(v){ return v; }).join(" · ")
     ));
     label.appendChild(newInfo);
     card.appendChild(label);
@@ -2336,27 +2364,30 @@ function openTrackingImportReview(fresh, flagged){
     var existingList = document.createElement("div"); existingList.className = "import-review-existing";
     f.matches.forEach(function(m){
       var line = document.createElement("div");
-      line.textContent = "Already tracked as: " + [m.name || "(no name)", m.phone || "(no phone)", "AWB " + m.awb, m.state || "(no state)", trackingStatusLabel(m)].join(" · ");
+      line.textContent = "Already on dashboard: " + [m.name || "(no name)", "AWB " + m.awb, courierLabel(m.courier), trackingStatusLabel(m)].join(" · ");
       existingList.appendChild(line);
     });
     card.appendChild(existingList);
-
-    host.appendChild(card);
+    list.appendChild(card);
     checks.push({cb: cb, row: f.row});
   });
+  host.appendChild(list);
+  allBtn.addEventListener("click", function(){ checks.forEach(function(c){ c.cb.checked = true; }); });
+  noneBtn.addEventListener("click", function(){ checks.forEach(function(c){ c.cb.checked = false; }); });
 
   var actions = document.createElement("div"); actions.className = "row"; actions.style.marginTop = "10px";
-  var importBtn = document.createElement("button"); importBtn.className = "primary small"; importBtn.textContent = "Import";
+  var importBtn = document.createElement("button"); importBtn.className = "primary small"; importBtn.textContent = "Approve & import ticked";
   importBtn.addEventListener("click", function(){
     var confirmed = checks.filter(function(c){ return c.cb.checked; }).map(function(c){ return c.row; });
-    var toImport = fresh.concat(confirmed);
+    if(!confirmed.length){ toast("Nothing ticked - use Discard to leave them all out."); return; }
     importBtn.disabled = true;
-    importTrackingRows(toImport)
-      .then(function(){ host.hidden = true; host.innerHTML = ""; })
+    freshDone.catch(function(){ return null; })
+      .then(function(uploadId){ return importTrackingRows(confirmed, fileName, uploadId); })
+      .then(function(){ host.hidden = true; host.innerHTML = ""; loadTrackingUploads(); })
       .catch(function(){ importBtn.disabled = false; });
   });
-  var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost small"; cancelBtn.textContent = "Cancel import";
-  cancelBtn.addEventListener("click", function(){ host.hidden = true; host.innerHTML = ""; });
+  var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost small"; cancelBtn.textContent = "Discard these";
+  cancelBtn.addEventListener("click", function(){ host.hidden = true; host.innerHTML = ""; toast("Left out " + flagged.length + " repeated row(s)."); });
   actions.appendChild(importBtn); actions.appendChild(cancelBtn);
   host.appendChild(actions);
 }
@@ -2430,7 +2461,7 @@ $("trackingFileInput").addEventListener("change", function(e){
         };
       }).filter(function(r){ return r.awb; });
       if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }
-      processTrackingRows(rows);
+      processTrackingRows(rows, file.name);
     }catch(err){
       toast("Couldn't read that file: " + err.message);
     }
@@ -2446,29 +2477,73 @@ $("trackingFileInput").addEventListener("change", function(e){
   e.target.value = "";
 });
 
-// Shared by Excel and PDF imports once rows are known: rows whose name
-// clashes with someone already tracked (different AWB) wait in the review
-// panel; the rest import straight away.
-function processTrackingRows(rows){
-  var existingByName = {};
+// Shared by Excel and PDF imports once rows are known. The tracking list is
+// reloaded first so repeats are judged against what's on the dashboard right
+// now. A row is held for approval when its AWB is already on the dashboard
+// (uploaded before), or its name is already tracked under another AWB; the
+// rest import straight away. An AWB listed twice in the same file counts once.
+async function processTrackingRows(rows, fileName){
+  try { await loadTracking(); } catch(e){ /* judged against what's loaded */ }
+  var seen = {}, dupInFile = 0;
+  rows = rows.filter(function(r){ var k = String(r.awb).toUpperCase(); if(seen[k]){ dupInFile++; return false; } seen[k] = true; return true; });
+  var byAwb = {}, byName = {};
   state.tracking.forEach(function(t){
+    byAwb[String(t.awb).toUpperCase()] = t;
     var key = trackingNameKey(t.name);
-    if(!key) return;
-    (existingByName[key] = existingByName[key] || []).push(t);
+    if(key){ (byName[key] = byName[key] || []).push(t); }
   });
   var fresh = [], flagged = [];
   rows.forEach(function(r){
+    var same = byAwb[String(r.awb).toUpperCase()];
+    if(same){ flagged.push({row: r, reason: "awb", matches: [same]}); return; }
     var key = trackingNameKey(r.name);
-    var matches = key ? (existingByName[key] || []).filter(function(t){ return t.awb !== r.awb; }) : [];
-    if(matches.length){ flagged.push({row: r, matches: matches}); }
-    else{ fresh.push(r); }
+    var matches = key ? (byName[key] || []) : [];
+    if(matches.length){ flagged.push({row: r, reason: "name", matches: matches}); }
+    else { fresh.push(r); }
   });
-  if(!flagged.length){
-    importTrackingRows(rows);
-  } else {
-    if(fresh.length){ importTrackingRows(fresh); }
-    openTrackingImportReview([], flagged);
-  }
+  if(dupInFile){ toast(dupInFile + " AWB(s) appeared more than once in " + (fileName || "the file") + " - counted once."); }
+  var freshDone = importTrackingRows(fresh, fileName).then(function(id){ loadTrackingUploads(); return id; });
+  if(flagged.length){ openTrackingImportReview(flagged, fileName, freshDone); }
+  else if(!fresh.length){ toast("Nothing new to import."); }
+}
+
+// ---------- Upload History ----------
+function loadTrackingUploads(){
+  return api("/api/tracking/uploads").then(function(list){ renderTrackingUploads(list || []); }).catch(function(){});
+}
+function renderTrackingUploads(list){
+  var host = $("trackingUploadsBody");
+  if(!host){ return; }
+  host.innerHTML = "";
+  $("trackingUploadsEmpty").hidden = list.length !== 0;
+  list.forEach(function(u){
+    var tr = document.createElement("tr");
+    var tdFile = document.createElement("td"); tdFile.className = "cell-name"; tdFile.textContent = u.fileName || "(no file name)";
+    var tdCourier = document.createElement("td"); tdCourier.textContent = u.courier ? courierLabel(u.courier) : "Mixed / auto";
+    var tdWhen = document.createElement("td"); tdWhen.textContent = new Date(Number(u.uploadedAt)).toLocaleString("en-IN", {day:"2-digit", month:"short", hour:"numeric", minute:"2-digit"});
+    var tdBy = document.createElement("td"); tdBy.textContent = u.uploadedBy || "—";
+    var tdCount = document.createElement("td"); tdCount.className = "mono";
+    tdCount.textContent = u.current + (Number(u.current) !== Number(u.rowCount) ? " of " + u.rowCount : "");
+    tdCount.title = "AWBs on the dashboard from this file (an AWB uploaded again later moves to that later file)";
+    var tdAct = document.createElement("td");
+    var del = document.createElement("button"); del.className = "ghost small"; del.textContent = "Delete";
+    var armed = false;
+    del.addEventListener("click", function(){
+      if(!armed){
+        armed = true; del.textContent = "Click again to delete " + u.current + " AWB(s)"; del.classList.add("danger");
+        setTimeout(function(){ if(armed){ armed = false; del.textContent = "Delete"; del.classList.remove("danger"); } }, 5000);
+        return;
+      }
+      del.disabled = true;
+      api("/api/tracking/uploads/" + encodeURIComponent(u.id), {method:"DELETE"}).then(function(res){
+        toast("Deleted " + (u.fileName || "upload") + " - " + res.removed + " AWB(s) removed from tracking.");
+        loadTracking(); loadTrackingUploads();
+      }).catch(function(err){ del.disabled = false; toast("Couldn't delete: " + err.message); });
+    });
+    tdAct.appendChild(del);
+    [tdFile, tdCourier, tdWhen, tdBy, tdCount, tdAct].forEach(function(td){ tr.appendChild(td); });
+    host.appendChild(tr);
+  });
 }
 
 // ---------- PDF import ----------
@@ -2483,14 +2558,19 @@ function processTrackingRows(rows){
 // isn't repeated on most rows. Either way the result goes to an editable
 // preview before anything is imported.
 var PDF_AWB_TOKEN_RE = /^[A-Z]{0,4}\d{9,16}[A-Z]{0,3}$/i;
-var PDF_AWB_HEAD_RE = /^(docket|awb|doc\b|doc\.|document|tracking|consignment|c\.?n\.?\b|waybill|airway)/i;
+// A tracking-ID column heading as a whole word ("Docket", "Doc. No.", "AWB",
+// "Document No") - anchored, so a footer like "TOTAL DOCUMENTS ON THIS PAGE"
+// is never mistaken for the header row.
+var PDF_AWB_HEAD_RE = /^(docket|awb|doc\.?|document|tracking|consignment|cn|c\.n\.|waybill|airway)(\s*(no|number|id|bill)\b\.?)?\s*[:.]?$/i;
 var PDF_NAME_HEAD_RE = /^(reci?e?i?ver|receiver|reciever|consignee|recipient|customer|party|buyer|client|deliver(y)? to)/i;
 var PDF_NOT_NAME_HEAD_RE = /(sender|shipper|consignor|from|courier|company|booked by)/i;
-var PDF_FOOTER_RE = /(grand\s*total|total\s*of|^total\b|page\s*\d)/i;
+var PDF_FOOTER_RE = /(grand\s*total|total\s*of|^total\b|page\s*\d|total\s+documents)/i;
+var PDF_DATE_RE = /^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$/;
 
 function pdfLinesOfPage(content){
-  var items = content.items.map(function(it){
-    return { s: normSpace(it.str), x: it.transform[4], y: it.transform[5], w: it.width || 0 };
+  // i = order the PDF drew the text in, used by pdfNameOnLine.
+  var items = content.items.map(function(it, idx){
+    return { s: normSpace(it.str), x: it.transform[4], y: it.transform[5], w: it.width || 0, i: idx };
   }).filter(function(it){ return it.s; });
   items.sort(function(a,b){ return (b.y - a.y) || (a.x - b.x); });
   var lines = [];
@@ -2503,16 +2583,38 @@ function pdfLinesOfPage(content){
   return lines;
 }
 
-// Header = the first line with a tracking-ID heading word, plus up to two
-// lines under it with no tracking ID (two-line headings like "Docket / No.",
-// "Reciver / Name"). Headings stacked at the same x form one column.
+// Width of one character of an item (fonts in these registers/invoices are
+// usually monospaced, but this works for any).
+function pdfCharW(it){ return it.s.length ? it.w / it.s.length : 5; }
+
+// PDF.js often hands back one item per word (sometimes per character, e.g.
+// "Consignee" "'" "s"). Items whose gap is no bigger than ~one space become
+// one phrase; a bigger gap means the next column has started.
+function pdfPhrases(items){
+  var out = [];
+  items.forEach(function(it){
+    var prev = out[out.length - 1];
+    if(prev && it.x - (prev.x + prev.w) <= Math.max(pdfCharW(it), pdfCharW(prev)) * 1.6){
+      prev.s += (it.x - (prev.x + prev.w) > 0.5 ? " " : "") + it.s; prev.w = (it.x + it.w) - prev.x;
+    } else { out.push({ s: it.s, x: it.x, w: it.w }); }
+  });
+  return out;
+}
+
+// Header = the first line with a tracking-ID heading, plus up to two lines
+// under it with no tracking ID (two-line headings like "Docket / No.",
+// "Reciver / Name"). Words on one line are merged into phrases first
+// ("Consignee's Name", "Doc. No."), then headings stacked at the same x
+// across those lines form one column.
 function pdfFindColumns(lines){
   for(var i=0;i<lines.length;i++){
-    if(!lines[i].items.some(function(it){ return PDF_AWB_HEAD_RE.test(it.s); })){ continue; }
-    var head = lines[i].items.slice();
-    for(var j=i+1;j<Math.min(lines.length, i+3);j++){
-      if(lines[j].items.some(function(it){ return PDF_AWB_TOKEN_RE.test(it.s); })){ break; }
-      head = head.concat(lines[j].items);
+    if(PDF_FOOTER_RE.test(lines[i].text)){ continue; }
+    var firstPhrases = pdfPhrases(lines[i].items);
+    if(!firstPhrases.some(function(ph){ return PDF_AWB_HEAD_RE.test(ph.s) || ph.s.split(" ").some(function(w){ return PDF_AWB_HEAD_RE.test(w); }); })){ continue; }
+    var head = firstPhrases.slice(), j;
+    for(j=i+1;j<Math.min(lines.length, i+3);j++){
+      if(lines[j].items.some(function(it){ return PDF_AWB_TOKEN_RE.test(it.s); }) || PDF_DATE_RE.test(lines[j].text)){ break; }
+      head = head.concat(pdfPhrases(lines[j].items));
     }
     head.sort(function(a,b){ return a.x - b.x; });
     var cols = [];
@@ -2523,14 +2625,14 @@ function pdfFindColumns(lines){
     cols.sort(function(a,b){ return a.x - b.x; });
     var awbIdx = -1, nameIdx = -1;
     cols.forEach(function(c, k){
-      if(awbIdx === -1 && PDF_AWB_HEAD_RE.test(c.text)){ awbIdx = k; }
+      if(awbIdx === -1 && (PDF_AWB_HEAD_RE.test(c.text) || c.text.split(" ").some(function(w){ return PDF_AWB_HEAD_RE.test(w); }))){ awbIdx = k; }
       if(nameIdx === -1 && PDF_NAME_HEAD_RE.test(c.text)){ nameIdx = k; }
     });
     if(nameIdx === -1){
       cols.forEach(function(c, k){ if(nameIdx === -1 && /\bname\b/i.test(c.text) && !PDF_NOT_NAME_HEAD_RE.test(c.text)){ nameIdx = k; } });
     }
     if(awbIdx === -1){ continue; }
-    function range(k){ return { from: cols[k].x - 8, to: k + 1 < cols.length ? cols[k+1].x - 8 : Infinity }; }
+    var range = function(k){ return { from: cols[k].x - 8, to: k + 1 < cols.length ? cols[k+1].x - 8 : Infinity, nextX: k + 1 < cols.length ? cols[k+1].x : Infinity }; };
     return { headerLine: j - 1, awb: range(awbIdx), name: nameIdx === -1 ? null : range(nameIdx) };
   }
   return null;
@@ -2538,27 +2640,49 @@ function pdfFindColumns(lines){
 
 function pdfIn(it, r){ return r && it.x >= r.from && it.x < r.to; }
 
-// PDF.js often hands back one item per word. Words separated by no more
-// than a normal space become one phrase ("GANGA CHARAN"); a bigger gap means
-// the next column has started.
-function pdfPhrases(items){
-  var out = [];
-  items.forEach(function(it){
-    var prev = out[out.length - 1];
-    if(prev && it.x - (prev.x + prev.w) < 6){ prev.s += " " + it.s; prev.w = (it.x + it.w) - prev.x; }
-    else { out.push({ s: it.s, x: it.x, w: it.w }); }
+// The full name on a row. A long name often runs past its own cell into the
+// next column (the cell only shows the start of it), so its later words sit
+// among that column's text - e.g. "NICHINBATLA VENKATESHA [BANGLORE] MURTHY
+// AKSHAY", or "PAVITHRA HAROHALLI" + "JANARDHANAREDDY" starting exactly at
+// the Center column's edge, right where "BANGLORE" also starts. Position
+// alone can't separate them, but the order the PDF draws text in can: a row
+// is drawn cell by cell, the whole name first, then the next column. So the
+// next column begins with the LAST item drawn at that column's left edge,
+// and the name is everything drawn from the name column up to (not
+// including) it - stopping early at a number or at the tracking-ID column.
+function pdfNameOnLine(items, cols){
+  var inName = items.filter(function(it){ return pdfIn(it, cols.name); });
+  if(!inName.length){ return ""; }
+  var startI = Math.min.apply(null, inName.map(function(it){ return it.i; }));
+  var edge = items.filter(function(it){ return it.i > startI && Math.abs(it.x - cols.name.nextX) <= 2.5; });
+  var boundaryI = edge.length ? Math.max.apply(null, edge.map(function(it){ return it.i; })) : Infinity;
+  var stopX = cols.awb.from > cols.name.from ? cols.awb.from : Infinity;
+  var seq = items.filter(function(it){ return it.i >= startI && it.i < boundaryI; }).sort(function(a,b){ return a.i - b.i; });
+  var parts = [];
+  for(var k=0;k<seq.length;k++){
+    var it = seq[k];
+    if(it.x < cols.name.from || it.x >= stopX || /^[\d.,\-\/]+$/.test(it.s)){ break; }
+    parts.push(it);
+  }
+  parts.sort(function(a,b){ return a.x - b.x; });
+  var name = "";
+  parts.forEach(function(it, k){
+    var gap = k ? it.x - (parts[k-1].x + parts[k-1].w) : 0;
+    name += (k && gap > 0.5 ? " " : "") + it.s;
   });
-  return out;
+  return normSpace(name);
 }
 
 async function extractTrackingFromPdf(buf){
   if(!window.pdfjsLib){ throw new Error("PDF reader didn't load - refresh the page and try again"); }
   pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.min.js";
   var doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
-  var rows = [], cols = null, noHeaderLines = [];
-  for(var p=1;p<=doc.numPages;p++){
+  var rows = [], cols = null, noHeaderLines = [], pages = doc.numPages;
+  for(var p=1;p<=pages;p++){
     var page = await doc.getPage(p);
     var lines = pdfLinesOfPage(await page.getTextContent());
+    // Later pages often repeat the header, but some (invoices) don't - then
+    // the columns found on an earlier page still apply.
     var found = pdfFindColumns(lines);
     if(found){ cols = found; }
     var start = found ? found.headerLine + 1 : 0;
@@ -2569,18 +2693,20 @@ async function extractTrackingFromPdf(buf){
       var awbItem = line.items.filter(function(it){ return PDF_AWB_TOKEN_RE.test(it.s) && (!cols || pdfIn(it, cols.awb)); })[0];
       if(awbItem){
         if(cols && cols.name){
-          last = { awb: awbItem.s.toUpperCase(), name: line.items.filter(function(it){ return pdfIn(it, cols.name); }).map(function(it){ return it.s; }).join(" ") };
+          last = { awb: awbItem.s.toUpperCase(), name: pdfNameOnLine(line.items, cols) };
           rows.push(last);
         } else {
           noHeaderLines.push({ awb: awbItem.s.toUpperCase(), items: pdfPhrases(line.items.filter(function(it){ return it !== awbItem; })) });
           last = null;
         }
       } else if(last && cols && cols.name){
-        // A line with no tracking ID right under a row: its text in the
-        // name column is that row's name wrapping onto a second line.
+        // A line with no tracking ID right under a row: text in the name
+        // column there is that row's name wrapping onto a second line -
+        // but not a date heading between groups of rows ("09/09/2026").
         var extra = line.items.filter(function(it){ return pdfIn(it, cols.name); });
         var other = line.items.filter(function(it){ return !pdfIn(it, cols.name) && !/^[\d.,\s]+$/.test(it.s); });
-        if(extra.length && !other.length){ last.name = normSpace(last.name + " " + extra.map(function(it){ return it.s; }).join(" ")); }
+        var extraText = normSpace(extra.map(function(it){ return it.s; }).join(" "));
+        if(extra.length && !other.length && /[A-Za-z]/.test(extraText) && !PDF_DATE_RE.test(extraText)){ last.name = normSpace(last.name + " " + extraText); }
         else { last = null; }
       }
     }
@@ -2593,12 +2719,14 @@ async function extractTrackingFromPdf(buf){
     noHeaderLines.forEach(function(r){ r.items.forEach(function(it){ freq[it.s] = (freq[it.s] || 0) + 1; }); });
     var limit = Math.max(2, Math.ceil(noHeaderLines.length * 0.4));
     noHeaderLines.forEach(function(r){
-      var cands = r.items.filter(function(it){ return /[A-Za-z]{2,}/.test(it.s) && !(noHeaderLines.length > 2 && freq[it.s] >= limit); });
+      var cands = r.items.filter(function(it){ return /[A-Za-z]{2,}/.test(it.s) && !PDF_DATE_RE.test(it.s) && !(noHeaderLines.length > 2 && freq[it.s] >= limit); });
       rows.push({ awb: r.awb, name: cands.length ? cands[cands.length - 1].s : "" });
     });
   }
   var seen = {};
-  return rows.filter(function(r){ if(seen[r.awb]){ return false; } seen[r.awb] = true; return true; });
+  var unique = rows.filter(function(r){ if(seen[r.awb]){ return false; } seen[r.awb] = true; return true; });
+  unique.pages = pages;
+  return unique;
 }
 
 // Editable preview of what was read from the PDF; nothing is imported until
@@ -2645,7 +2773,7 @@ function openTrackingPdfPreview(fileName, found){
     });
     if(!rows.length){ toast("Nothing ticked to import."); return; }
     host.hidden = true; host.innerHTML = "";
-    processTrackingRows(rows);
+    processTrackingRows(rows, fileName);
   });
   var cancelBtn = document.createElement("button"); cancelBtn.className = "ghost small"; cancelBtn.textContent = "Cancel";
   cancelBtn.addEventListener("click", function(){ host.hidden = true; host.innerHTML = ""; });
