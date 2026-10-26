@@ -44,6 +44,7 @@ try {
 # Lowered from 2 hours - each AWB now gets re-checked roughly every 30
 # minutes instead.
 $CheckIntervalHours = 0.5
+$FailedRetryMinutes = 10
 # Raised from 40/60s/800ms: the fixed sleep between cycles was the real
 # bottleneck whenever there's a backlog (e.g. right after importing a few
 # hundred new AWBs) - it's paid once per cycle no matter the batch size, so
@@ -188,7 +189,7 @@ $TirupatiUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 $script:TirupatiForm = $null
 
 function Get-TirupatiFormFields {
-  $page = Invoke-WebRequest -Uri "$TirupatiBase/TopHeader.aspx" -UserAgent $TirupatiUA -UseBasicParsing -TimeoutSec 20
+  $page = Invoke-WebRequest -Uri "$TirupatiBase/TopHeader.aspx" -UserAgent $TirupatiUA -UseBasicParsing -TimeoutSec 45
   $f = ""
   foreach ($n in "__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION") {
     $v = [regex]::Match($page.Content, "id=""$n"" value=""([^""]*)""").Groups[1].Value
@@ -197,15 +198,20 @@ function Get-TirupatiFormFields {
   return $f
 }
 
+# The token for an AWB never changes (their server encrypts the AWB the same
+# way every time), so once got it is remembered for this poller run -
+# rechecks of the same AWB then need one request to their slow site, not two.
+$script:TirupatiTokens = @{}
 function Get-TirupatiToken($awb) {
+  if ($script:TirupatiTokens.ContainsKey($awb)) { return $script:TirupatiTokens[$awb] }
   foreach ($attempt in 1, 2) {
     if (-not $script:TirupatiForm -or $attempt -eq 2) { $script:TirupatiForm = Get-TirupatiFormFields }
     $body = $script:TirupatiForm + "trackingno=$awb&btnTrack=Go&networksearch="
     $r = Invoke-WebRequest -Uri "$TirupatiBase/TopHeader.aspx" -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" `
       -UserAgent $TirupatiUA -Headers @{ Referer = "$TirupatiBase/"; Origin = $TirupatiBase } `
-      -MaximumRedirection 0 -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing -TimeoutSec 20
+      -MaximumRedirection 0 -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing -TimeoutSec 45
     $tok = [regex]::Match("$($r.Headers.Location)", "docnos=([^&]+)").Groups[1].Value
-    if ($tok) { return $tok }
+    if ($tok) { $script:TirupatiTokens[$awb] = $tok; return $tok }
   }
   return $null
 }
@@ -224,7 +230,7 @@ function Get-TirupatiStatus($awb) {
     $tok = Get-TirupatiToken $awb
     if (-not $tok) { return @{ ok = $false; error = "Shree Tirupati: their site didn't return a tracking page for this AWB." } }
     $d = Invoke-WebRequest -Uri "$TirupatiBase/Frm_DocTrackWeb.aspx?docno=$tok" -UserAgent $TirupatiUA `
-      -MaximumRedirection 0 -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing -TimeoutSec 20
+      -MaximumRedirection 0 -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing -TimeoutSec 45
     $h = "$($d.Content)"
     $from = Get-TirupatiField $h "txtFromCenter"
     $to = Get-TirupatiField $h "txtToCenter"
@@ -306,15 +312,42 @@ $CourierLookups = [ordered]@{
 # .courier, which is saved, so later checks go straight there. A network
 # error from a courier stops the search for this cycle rather than wrongly
 # falling through to "not found".
+# If a courier's site fails (timeout / unreachable / error page), its other
+# AWBs in this cycle would each wait out their own full timeout - dozens of
+# 20-45 second stalls that also hold up the other couriers' AWBs. So after a
+# failure that courier is skipped for a few minutes: its AWBs are marked
+# "check failed" at once (and retried on the 10-minute failed-check rhythm)
+# while everything else keeps moving.
+$script:CourierDownUntil = @{}
+$CourierNames = @{ shreeanjani = "Shree Anjani"; tirupati = "Shree Tirupati"; delhivery = "Delhivery" }
+$CourierPauseSeconds = 180
+function Invoke-CourierLookup($c, $awb) {
+  if ($script:CourierDownUntil[$c] -and (Get-Date) -lt $script:CourierDownUntil[$c]) {
+    return @{ ok = $false; error = "$($CourierNames[$c])'s site is not responding right now - retrying automatically." }
+  }
+  $r = & $CourierLookups[$c] $awb
+  if (-not $r.ok -and -not $r.notFound) { $script:CourierDownUntil[$c] = (Get-Date).AddSeconds($CourierPauseSeconds) }
+  return $r
+}
+
 function Get-AwbStatus($awb, $courier) {
-  if ($courier -and $CourierLookups.Contains($courier)) { return (& $CourierLookups[$courier] $awb) }
   # Most likely courier first, by AWB length: Tirupati dockets are 12 digits,
   # Delhivery AWBs 13-14, Shree Anjani's usually 10.
   $order = if ($awb -match '^\d{12}$') { @("tirupati", "shreeanjani", "delhivery") }
            elseif ($awb -match '^\d{13,14}$') { @("delhivery", "shreeanjani", "tirupati") }
            else { @("shreeanjani", "delhivery", "tirupati") }
+  # The AWB's own courier (chosen at import) is always tried first. Only if
+  # that courier positively says it has no such booking are the others tried
+  # - an AWB uploaded under the wrong courier is then found and corrected
+  # instead of sitting in "Not found" forever. A network/site error is never
+  # treated as "not found": it returns as-is and is retried.
+  if ($courier -and $CourierLookups.Contains($courier)) {
+    $r = Invoke-CourierLookup $courier $awb
+    if ($r.ok -or -not $r.notFound) { return $r }
+    $order = @($order | Where-Object { $_ -ne $courier })
+  }
   foreach ($c in $order) {
-    $r = & $CourierLookups[$c] $awb
+    $r = Invoke-CourierLookup $c $awb
     if ($r.ok -or -not $r.notFound) { return $r }
   }
   return @{ ok = $false; notFound = $true; error = "Not found at any supported courier (Anjani, Shree Tirupati, Delhivery) - wrong AWB, or a courier the dashboard doesn't track yet." }
@@ -348,7 +381,13 @@ while ($true) {
       $last = $rec.lastCheckedAt
       $isDelivered = Test-Delivered $rec.statusName
       $requested = [bool]$rec.checkRequested
-      if (-not ($requested -or $isDelivered -or -not $last -or [long]$last -le $cutoff)) { continue }
+      # A check that FAILED (site down, timeout, blocked - not "no such
+      # booking") is retried every $FailedRetryMinutes instead of waiting out
+      # the full interval, and keeps being retried until a real status comes
+      # back. Everything else - including "not found" and return/closed
+      # statuses - rechecks every $CheckIntervalHours.
+      $rowCutoff = if ($rec.lastError -and $rec.lastError -notmatch '^(Not found|No booking at|Not a valid|Invalid AWB)') { $now - ($FailedRetryMinutes * 60 * 1000) } else { $cutoff }
+      if (-not ($requested -or $isDelivered -or -not $last -or [long]$last -le $rowCutoff)) { continue }
       if ($requested -or $isDelivered -or -not $last) {
         $tier = 0; $secondary = 0
       } else {

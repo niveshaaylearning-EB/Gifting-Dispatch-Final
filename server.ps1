@@ -45,6 +45,10 @@ try {
   Write-Error "Could not connect to the database: $($_.Exception.Message)"
   exit 1
 }
+try {
+  $junk = Remove-DbInvalidTracking
+  if ($junk -gt 0) { Write-Host "  Removed $junk false tracking entr$(if ($junk -eq 1) {'y'} else {'ies'}) (not real tracking IDs, e.g. a file's total rows)." -ForegroundColor DarkGray }
+} catch { Write-Host "  Couldn't clean up false tracking entries: $($_.Exception.Message)" -ForegroundColor Yellow }
 
 # TRUST_PROXY=true only when running behind a reverse proxy (nginx, a load
 # balancer) that sets X-Forwarded-For/-Proto/-Host - otherwise those headers
@@ -1082,7 +1086,7 @@ while ($listener.IsListening) {
       $rows = @()
       foreach ($row in @($body.rows)) {
         $awb = ("" + $row.awb).Trim()
-        if (-not $awb) { continue }
+        if (-not $awb -or -not (Test-TrackingAwb $awb)) { continue }
         # Only couriers the poller knows how to check; anything else is left
         # blank so the poller works it out by asking each supported courier.
         $courier = ("" + $row.courier).Trim().ToLowerInvariant()

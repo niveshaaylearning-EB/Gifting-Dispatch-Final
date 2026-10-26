@@ -121,6 +121,12 @@ button.small{padding:5px 10px; font-size:12px; min-height:30px;}
 .import-review-row{background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:8px;}
 .import-review-check{display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:13px;}
 .import-review-check input{margin-top:3px;}
+.courier-summary{display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; margin:0 0 12px;}
+.courier-chip{display:flex; flex-direction:column; gap:2px; text-align:left; padding:7px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2); color:inherit; font:inherit; font-size:12px; cursor:pointer;}
+.courier-chip span{color:var(--text-muted); font-size:11.5px;}
+.courier-chip:hover, .courier-chip.active{border-color:var(--accent);}
+.courier-chip.active{background:var(--accent-soft);}
+.courier-total{align-self:center; margin-left:auto; font-size:12.5px; font-weight:600; color:var(--text-muted);}
 .uploads-table{table-layout:fixed; min-width:640px; font-size:12.5px;}
 .uploads-table tbody td{vertical-align:middle; overflow-wrap:break-word; cursor:default;}
 .uploads-table tbody tr{cursor:default;}
@@ -512,8 +518,16 @@ tbody tr.edit-row.row-new{background:var(--accent-soft);}
       <div id="trackingPdfPreview" class="import-review" hidden></div>
       <div id="trackingImportReview" class="import-review" hidden></div>
       <div class="stat-cards" id="trackingStatCards"></div>
+      <div class="courier-summary" id="trackingCourierSummary"></div>
       <div class="row" style="margin-top:10px;">
         <input type="search" id="trackingSearchBox" placeholder="Search AWB, name, phone, state&hellip;" style="flex:1 1 220px;">
+        <select id="trackingCourierFilter" title="Show one courier only - the cards count just that courier">
+          <option value="">All couriers</option>
+          <option value="shreeanjani">Shree Anjani</option>
+          <option value="tirupati">Shree Tirupati</option>
+          <option value="delhivery">Delhivery</option>
+          <option value="unknown">Courier not identified</option>
+        </select>
         <select id="trackingStatusFilter">
           <option value="">All statuses</option>
           <option value="delivered">Delivered</option>
@@ -2148,13 +2162,51 @@ function trackingOtherKey(r){
   return s || "Unknown status";
 }
 
+// One courier key per AWB; anything not one of the three known is "unknown".
+function trackingCourierKey(r){ return COURIER_LABELS[r.courier] ? r.courier : "unknown"; }
+function trackingCourierMatches(r){
+  var f = $("trackingCourierFilter").value;
+  return !f || trackingCourierKey(r) === f;
+}
+// Courier-by-courier counts of every AWB on the dashboard (never filtered),
+// each AWB counted once under exactly one courier and one status bucket, so
+// the rows always add up to the grand total shown at the end.
+function renderCourierSummary(){
+  var host = trackingCourierSummary;
+  if(!host){ return; }
+  var order = ["shreeanjani", "tirupati", "delhivery", "unknown"];
+  var by = {};
+  order.forEach(function(k){ by[k] = { total: 0, delivered: 0, transit: 0, notfound: 0, other: 0 }; });
+  state.tracking.forEach(function(r){ var b = by[trackingCourierKey(r)]; b.total++; b[trackingCategory(r)]++; });
+  var active = $("trackingCourierFilter").value;
+  host.innerHTML = "";
+  var sum = 0;
+  order.forEach(function(k){
+    var b = by[k]; sum += b.total;
+    if(!b.total && k === "unknown"){ return; }
+    var chip = document.createElement("button"); chip.type = "button";
+    chip.className = "courier-chip" + (active === k ? " active" : "");
+    var name = document.createElement("strong"); name.textContent = (k === "unknown" ? "Courier not identified" : COURIER_LABELS[k]) + ": " + b.total;
+    var detail = document.createElement("span");
+    detail.textContent = b.delivered + " delivered · " + b.transit + " in transit · " + b.notfound + " not found · " + b.other + " others";
+    chip.appendChild(name); chip.appendChild(detail);
+    chip.addEventListener("click", function(){ $("trackingCourierFilter").value = active === k ? "" : k; $("trackingOtherFilter").value = ""; renderTrackingTab(); });
+    host.appendChild(chip);
+  });
+  var total = document.createElement("div"); total.className = "courier-total";
+  total.textContent = "All couriers: " + sum + (sum === state.tracking.length ? "" : " (MISMATCH with " + state.tracking.length + ")");
+  host.appendChild(total);
+}
+
 function renderTrackingStatCards(){
   var host = $("trackingStatCards");
   if(!host) return;
   host.innerHTML = "";
   var counts = { delivered: 0, transit: 0, notfound: 0, other: 0 };
   var otherCounts = {};
-  state.tracking.forEach(function(r){
+  var scoped = state.tracking.filter(trackingCourierMatches);
+  renderCourierSummary();
+  scoped.forEach(function(r){
     var c = trackingCategory(r);
     counts[c]++;
     if(c === "other"){ var k = trackingOtherKey(r); otherCounts[k] = (otherCounts[k] || 0) + 1; }
@@ -2195,7 +2247,7 @@ function renderTrackingStatCards(){
     renderTrackingTab();
   }
 
-  makeCard("Total AWBs", state.tracking.length, "c-accent", !catFilter, function(){
+  makeCard("Total AWBs", scoped.length, "c-accent", !catFilter, function(){
     $("trackingStatusFilter").value = ""; $("trackingOtherFilter").value = ""; renderTrackingTab();
   });
   makeCard("Delivered", counts.delivered, "c-good", catFilter === "delivered", function(){ selectCategory("delivered"); });
@@ -2210,6 +2262,7 @@ function renderTrackingTab(){
   var statusFilter = $("trackingStatusFilter").value;
   var otherFilter = $("trackingOtherFilter").value;
   var rows = state.tracking.filter(function(r){
+    if(!trackingCourierMatches(r)){ return false; }
     if(statusFilter && trackingCategory(r) !== statusFilter){ return false; }
     if(otherFilter && (trackingCategory(r) !== "other" || trackingOtherKey(r) !== otherFilter)){ return false; }
     if(!matchesColFilters(r, trackingColFilters, TRACKING_COL_VALUE_ACCESSORS)){ return false; }
@@ -2277,6 +2330,7 @@ function renderTrackingTab(){
 }
 
 $("trackingSearchBox").addEventListener("input", renderTrackingTab);
+$("trackingCourierFilter").addEventListener("change", function(){ $("trackingOtherFilter").value = ""; renderTrackingTab(); });
 $("trackingStatusFilter").addEventListener("change", function(){
   if($("trackingStatusFilter").value !== "other"){ $("trackingOtherFilter").value = ""; }
   renderTrackingTab();
@@ -2287,6 +2341,8 @@ $("trackingOtherFilter").addEventListener("change", function(){
   renderTrackingTab();
 });
 
+// A real tracking ID: 9-16 digits, at most a few letters around them. Matches the server.
+var TRACKING_AWB_RE = /^[A-Za-z]{0,4}[0-9]{9,16}[A-Za-z]{0,3}$/;
 function trackingNameKey(s){ return normSpace(s).toLowerCase(); }
 
 // Queues every AWB just imported for an immediate check. The background
@@ -2460,6 +2516,9 @@ $("trackingFileInput").addEventListener("change", function(e){
           courier: chosenCourier && chosenCourier !== "auto" ? chosenCourier : (courierCol === -1 ? "" : courierKey(r[courierCol]))
         };
       }).filter(function(r){ return r.awb; });
+      var allRows = rows.length;
+      rows = rows.filter(function(r){ return TRACKING_AWB_RE.test(r.awb); });
+      if(allRows !== rows.length){ toast((allRows - rows.length) + " row(s) skipped - not tracking IDs (total / heading rows)."); }
       if(!rows.length){ toast("No valid rows (with a Tracking ID) found in that file."); return; }
       processTrackingRows(rows, file.name);
     }catch(err){

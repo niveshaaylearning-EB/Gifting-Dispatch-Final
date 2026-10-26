@@ -578,6 +578,17 @@ function Remove-DbTrackingUpload($id) {
   return $n
 }
 
+# A real tracking ID is digits (9-16) with at most a few letters around
+# them. Anything else - "118", "Total Of", a heading - was picked up from a
+# file's total/heading rows and isn't a shipment.
+$script:TrackingAwbPattern = '^[A-Za-z]{0,4}[0-9]{9,16}[A-Za-z]{0,3}$'
+function Test-TrackingAwb($awb) { return ([string]$awb) -match $script:TrackingAwbPattern }
+
+# Removes false entries already saved by earlier imports. Returns how many.
+function Remove-DbInvalidTracking {
+  return (Invoke-DbNonQuery "DELETE FROM tracking WHERE awb !~ '^[A-Za-z]{0,4}[0-9]{9,16}[A-Za-z]{0,3}$'")
+}
+
 function Import-DbTrackingRows($rows, $uploadId = $null) {
   $byAwb = [ordered]@{}
   $repeats = 0
