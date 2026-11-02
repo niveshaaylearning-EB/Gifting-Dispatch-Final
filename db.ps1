@@ -645,5 +645,8 @@ function Request-DbTrackingCheck($awbs) {
   if ($list.Count -gt 0) {
     return (Invoke-DbNonQuery "UPDATE tracking SET check_requested_at = now() WHERE awb = ANY(@awbs) AND delivered = false" @{ awbs = $list })
   }
-  return (Invoke-DbNonQuery "UPDATE tracking SET check_requested_at = now() WHERE delivered = false")
+  # "Everything undelivered" (the dashboard opening, or Refresh now) skips
+  # AWBs checked within the last 5 minutes - opening the dashboard several
+  # times in a row shouldn't re-hit the couriers' sites each time.
+  return (Invoke-DbNonQuery "UPDATE tracking SET check_requested_at = now() WHERE delivered = false AND (last_checked_at IS NULL OR last_checked_at < (extract(epoch FROM now() - interval '5 minutes') * 1000)::bigint)")
 }

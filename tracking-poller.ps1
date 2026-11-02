@@ -44,7 +44,7 @@ try {
 # Lowered from 2 hours - each AWB now gets re-checked roughly every 30
 # minutes instead.
 $CheckIntervalHours = 0.5
-$FailedRetryMinutes = 10
+$FailedRetryMinutes = 5
 # Raised from 40/60s/800ms: the fixed sleep between cycles was the real
 # bottleneck whenever there's a backlog (e.g. right after importing a few
 # hundred new AWBs) - it's paid once per cycle no matter the batch size, so
@@ -320,7 +320,10 @@ $CourierLookups = [ordered]@{
 # while everything else keeps moving.
 $script:CourierDownUntil = @{}
 $CourierNames = @{ shreeanjani = "Shree Anjani"; tirupati = "Shree Tirupati"; delhivery = "Delhivery" }
-$CourierPauseSeconds = 180
+$CourierPauseSeconds = 120
+function Test-CourierPaused($c) {
+  return [bool]($c -and $script:CourierDownUntil[$c] -and (Get-Date) -lt $script:CourierDownUntil[$c])
+}
 function Invoke-CourierLookup($c, $awb) {
   if ($script:CourierDownUntil[$c] -and (Get-Date) -lt $script:CourierDownUntil[$c]) {
     return @{ ok = $false; error = "$($CourierNames[$c])'s site is not responding right now - retrying automatically." }
@@ -378,6 +381,10 @@ while ($true) {
     foreach ($awb in $tracking.Keys) {
       $rec = $tracking[$awb]
       if (-not (Test-NeedsCheck $rec)) { continue }
+      # A courier whose site is paused (just failed) is left alone: its AWBs
+      # stay due and are NOT stamped "checked", so they're retried the moment
+      # the pause ends instead of clogging this batch and starving the rest.
+      if (Test-CourierPaused $rec.courier) { continue }
       $last = $rec.lastCheckedAt
       $isDelivered = Test-Delivered $rec.statusName
       $requested = [bool]$rec.checkRequested
@@ -406,6 +413,8 @@ while ($true) {
      # One AWB failing (e.g. a save error) must not abort the rest of the batch.
      try {
       $rec = $tracking[$awb]
+      # Courier got paused earlier in this very batch - leave the rest for later.
+      if (Test-CourierPaused $rec.courier) { continue }
       $wasAlreadyDelivered = Test-Delivered $rec.statusName
       $result = Get-AwbStatus $awb $rec.courier
       $rec.lastCheckedAt = $now

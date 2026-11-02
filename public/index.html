@@ -725,7 +725,7 @@ function activateTab(name){
   updateTopStats();
   if(name === "review"){ loadReviewData(); }
   if(name === "dispatch"){ loadDispatchClients(); }
-  if(name === "tracking"){ loadTracking(); }
+  if(name === "tracking"){ loadTracking(); autoCheckTracking(); }
   if(name === "approvals"){ loadApprovals(); }
 }
 document.querySelectorAll(".tab-btn").forEach(function(btn){
@@ -2852,6 +2852,22 @@ $("trackingRefreshBtn").addEventListener("click", function(){
     .catch(function(err){ toast("Refresh failed: " + err.message); })
     .finally(function(){ $("trackingRefreshBtn").disabled = false; $("trackingRefreshBtn").textContent = originalText; });
 });
+
+// Opening the dashboard (and then every 10 minutes while it stays open)
+// quietly asks the backend to re-check every undelivered AWB - including the
+// "check failed" ones. The server only queues it; the background poller does
+// the actual courier lookups, and the server skips AWBs checked <5 min ago.
+var lastAutoTrackingCheck = 0;
+function autoCheckTracking(force){
+  var now = Date.now();
+  if(!force && now - lastAutoTrackingCheck < 5 * 60 * 1000) return;
+  lastAutoTrackingCheck = now;
+  api("/api/tracking/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({})})
+    .then(function(){ if(activeTab === "tracking") loadTracking(); })
+    .catch(function(){ /* not logged in yet / server busy - the next trigger retries */ });
+}
+setTimeout(autoCheckTracking, 3000);
+setInterval(autoCheckTracking, 10 * 60 * 1000);
 
 // ---------- User Approvals tab (admin only) ----------
 function loadApprovals(){
